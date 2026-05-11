@@ -3,6 +3,8 @@ import { runYearResetJobs } from '@/lib/carry-over/process';
 import { isAuthorizedCronRequest } from '@/lib/cron/auth';
 import { createServiceClient } from '@/lib/supabase/server';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

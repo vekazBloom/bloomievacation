@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { applyCarryOverDecision } from '@/lib/carry-over/process';
+import { applyCarryOverDecision } from '@/lib/carry-over/decisions';
 import { getAnnualRemaining } from '@/lib/carry-over/remaining';
 import { canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { createServiceClient } from '@/lib/supabase/server';
+
+export const dynamic = 'force-dynamic';
 
 const schema = z.object({
   projectId: z.string().uuid(),
