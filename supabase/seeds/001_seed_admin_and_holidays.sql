@@ -2,26 +2,39 @@
 -- BloomieVacation - Seed Data
 -- ============================================================================
 -- Run AFTER 001_initial_schema.sql
+-- Run AFTER 003_holiday_unique_indexes.sql (idempotent holiday inserts)
 -- Run AFTER you create the auth user via Supabase Dashboard:
 --   email: vekaz.hadzic@bloomteq.com
 --   password: Bloomteq2025!
 --   auto-confirm: yes
 -- ============================================================================
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM auth.users
+    WHERE lower(email) = lower('vekaz.hadzic@bloomteq.com')
+  ) THEN
+    RAISE EXCEPTION
+      'Create and confirm auth user vekaz.hadzic@bloomteq.com before running this seed.';
+  END IF;
+END $$;
+
 -- ============================================================================
 -- SYSTEM ADMIN USER
 -- ============================================================================
--- Insert/update the system admin user, linking to the existing auth user.
 
 INSERT INTO public.users (id, email, name, is_system_admin)
 SELECT
   au.id,
-  'vekaz.hadzic@bloomteq.com',
+  au.email,
   'Vekaz Hadzic',
   TRUE
 FROM auth.users au
-WHERE au.email = 'vekaz.hadzic@bloomteq.com'
+WHERE lower(au.email) = lower('vekaz.hadzic@bloomteq.com')
 ON CONFLICT (id) DO UPDATE SET
+  email = EXCLUDED.email,
   is_system_admin = TRUE,
   name = EXCLUDED.name;
 
@@ -38,7 +51,7 @@ INSERT INTO public.national_holidays (name, date, is_recurring, description) VAL
   ('Labour Day (2nd)',         '2025-05-02', TRUE, 'Praznik rada (drugi dan)'),
   ('Statehood Day',            '2025-11-25', TRUE, 'Dan državnosti BiH'),
   ('Catholic Christmas',       '2025-12-25', TRUE, 'Katolički Božić')
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, date) DO NOTHING;
 
 -- ============================================================================
 -- RELIGIOUS HOLIDAYS POOL
@@ -53,7 +66,7 @@ INSERT INTO public.religious_holidays_pool (name, date, category, description, i
   ('Eid al-Adha (Day 1)',      '2025-06-06', 'islam', 'Kurban Bajram - prvi dan', FALSE),
   ('Eid al-Adha (Day 2)',      '2025-06-07', 'islam', 'Kurban Bajram - drugi dan', FALSE),
   ('Mawlid al-Nabi',           '2025-09-04', 'islam', 'Mevlud', FALSE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, date, category) DO NOTHING;
 
 -- CHRISTIANITY (CATHOLIC)
 INSERT INTO public.religious_holidays_pool (name, date, category, description, is_recurring) VALUES
@@ -61,7 +74,7 @@ INSERT INTO public.religious_holidays_pool (name, date, category, description, i
   ('Catholic Easter Monday',   '2025-04-21', 'christianity_catholic', 'Uskrsni ponedjeljak', FALSE),
   ('All Saints'' Day',         '2025-11-01', 'christianity_catholic', 'Svi sveti', TRUE),
   ('Catholic Christmas Eve',   '2025-12-24', 'christianity_catholic', 'Badnji dan', TRUE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, date, category) DO NOTHING;
 
 -- CHRISTIANITY (ORTHODOX)
 INSERT INTO public.religious_holidays_pool (name, date, category, description, is_recurring) VALUES
@@ -69,7 +82,7 @@ INSERT INTO public.religious_holidays_pool (name, date, category, description, i
   ('Orthodox Easter',          '2025-04-20', 'christianity_orthodox', 'Pravoslavni Uskrs', FALSE),
   ('Orthodox Easter Monday',   '2025-04-21', 'christianity_orthodox', 'Pravoslavni Uskrsni ponedjeljak', FALSE),
   ('St. Sava Day',             '2025-01-27', 'christianity_orthodox', 'Sveti Sava', TRUE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, date, category) DO NOTHING;
 
 -- JUDAISM
 INSERT INTO public.religious_holidays_pool (name, date, category, description, is_recurring) VALUES
@@ -77,18 +90,18 @@ INSERT INTO public.religious_holidays_pool (name, date, category, description, i
   ('Yom Kippur',               '2025-10-02', 'judaism', 'Dan pomirenja', FALSE),
   ('Rosh Hashanah',            '2025-09-23', 'judaism', 'Jevrejska Nova godina', FALSE),
   ('Hanukkah (Day 1)',         '2025-12-15', 'judaism', 'Hanuka', FALSE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, date, category) DO NOTHING;
 
 -- HINDUISM
 INSERT INTO public.religious_holidays_pool (name, date, category, description, is_recurring) VALUES
   ('Diwali',                   '2025-10-21', 'hinduism', 'Festival svjetla', FALSE),
   ('Holi',                     '2025-03-14', 'hinduism', 'Festival boja', FALSE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, date, category) DO NOTHING;
 
 -- BUDDHISM
 INSERT INTO public.religious_holidays_pool (name, date, category, description, is_recurring) VALUES
   ('Vesak',                    '2025-05-12', 'buddhism', 'Dan Bude', FALSE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, date, category) DO NOTHING;
 
 -- ============================================================================
 -- DONE

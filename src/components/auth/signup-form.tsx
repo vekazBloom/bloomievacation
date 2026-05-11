@@ -47,12 +47,16 @@ export function SignupForm({
   async function onSubmit(values: FormValues) {
     setIsLoading(true);
 
+    const normalizedEmail = values.email.trim().toLowerCase();
+
     const { data, error } = await supabase.auth.signUp({
-      email: values.email,
+      email: normalizedEmail,
       password: values.password,
       options: {
         data: { name: values.name },
-        emailRedirectTo: `${window.location.origin}/dashboard`,
+        emailRedirectTo: inviteToken
+          ? `${window.location.origin}/invite?token=${encodeURIComponent(inviteToken)}`
+          : `${window.location.origin}/dashboard`,
       },
     });
 
@@ -66,7 +70,7 @@ export function SignupForm({
     if (data.user) {
       const { error: profileError } = await supabase.from('users').upsert({
         id: data.user.id,
-        email: values.email,
+        email: normalizedEmail,
         name: values.name,
       });
       if (profileError) console.error('Profile creation error:', profileError);
@@ -74,8 +78,29 @@ export function SignupForm({
     }
 
     if (inviteToken) {
+      if (!data.session) {
+        setIsLoading(false);
+        toast.success('Account created. Confirm your email, then open the invite link again.');
+        router.push(`/invite?token=${encodeURIComponent(inviteToken)}`);
+        return;
+      }
+
+      const response = await fetch('/api/invitations/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: inviteToken }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setIsLoading(false);
+        toast.error(payload.error || 'Failed to accept invitation');
+        router.push(`/invite?token=${encodeURIComponent(inviteToken)}`);
+        return;
+      }
+
       toast.success('Account created! Joining your project…');
-      window.location.href = `/api/invitations/accept?token=${encodeURIComponent(inviteToken)}&redirect=${encodeURIComponent('/dashboard')}`;
+      window.location.href = '/dashboard';
       return;
     }
 

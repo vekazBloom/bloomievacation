@@ -1,3 +1,4 @@
+import { fulfillInvitation } from '@/lib/invitations/accept';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import type { ProjectRole } from '@/types/database';
 
@@ -58,6 +59,39 @@ export async function reconcileAcceptedInvitationMemberships(
   }
 
   return { error: null };
+}
+
+export async function syncInvitationsForUser(
+  service: ServiceClient,
+  user: { id: string; email: string; name?: string | null }
+) {
+  const email = user.email.trim();
+  if (!email) {
+    return { error: null };
+  }
+
+  const { data: pendingInvites, error: pendingError } = await service
+    .from('invitations')
+    .select('*')
+    .ilike('email', email)
+    .is('accepted_at', null);
+
+  if (pendingError) {
+    return { error: pendingError };
+  }
+
+  for (const invite of pendingInvites || []) {
+    if (new Date(invite.expires_at) < new Date()) {
+      continue;
+    }
+
+    const result = await fulfillInvitation(service, invite, user, { notify: false });
+    if (!result.ok) {
+      return { error: new Error(result.error) };
+    }
+  }
+
+  return reconcileAcceptedInvitationsForUser(service, user.id, email);
 }
 
 export async function reconcileAcceptedInvitationsForUser(

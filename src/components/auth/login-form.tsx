@@ -46,6 +46,12 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
     }
 
     toast.success('Welcome back!');
+
+    if (redirectTo?.includes('/api/invitations/accept')) {
+      window.location.href = redirectTo;
+      return;
+    }
+
     router.push(redirectTo || '/dashboard');
     router.refresh();
   }

@@ -42,7 +42,7 @@ export default async function InvitePage({ searchParams }: Props) {
   const { data: existingUser } = await service
     .from('users')
     .select('id')
-    .eq('email', invite.email)
+    .ilike('email', invite.email.trim())
     .maybeSingle();
 
   // Logged in & email matches → auto-redirect to API to accept.

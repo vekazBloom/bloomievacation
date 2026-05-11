@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { reconcileAcceptedInvitationsForUser } from '@/lib/invitations/status';
+import { syncInvitationsForUser } from '@/lib/invitations/status';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 
@@ -31,7 +31,11 @@ export default async function DashboardLayout({
   }
 
   if (user.email) {
-    await reconcileAcceptedInvitationsForUser(createServiceClient(), user.id, user.email);
+    await syncInvitationsForUser(createServiceClient(), {
+      id: user.id,
+      email: user.email,
+      name: (user.user_metadata?.name as string) || profile?.name || null,
+    });
   }
 
   // Get user's projects (for sidebar).
