@@ -8,16 +8,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDateRange } from '@/lib/utils';
+import { projectPath } from '@/lib/projects/paths';
 
 export function LeaveRequestsPanel({
   requests,
   canReview,
-  projectId,
+  projectSlug,
   currentUserId,
 }: {
   requests: any[];
   canReview: boolean;
-  projectId?: string;
+  projectSlug?: string;
   currentUserId?: string;
 }) {
   const router = useRouter();
@@ -84,8 +85,8 @@ export function LeaveRequestsPanel({
               currentUserId &&
               request.user_id === currentUserId;
             const profileHref =
-              projectId && request.user_id
-                ? `/projects/${projectId}/members/${request.user_id}`
+              projectSlug && request.user_id
+                ? projectPath(projectSlug, 'members', request.user_id)
                 : null;
             const isEditing = editingId === request.id;
             const isRejecting = rejectingId === request.id;

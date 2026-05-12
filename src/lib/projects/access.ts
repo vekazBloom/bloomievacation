@@ -1,22 +1,17 @@
-import { createClient } from '@/lib/supabase/server';
+import { cache } from 'react';
+import { getAuthenticatedUser } from '@/lib/auth/dashboard';
 import type { ProjectRole } from '@/types/database';
 
-export async function getCurrentUser() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return { supabase, user };
-}
+export const getCurrentUser = getAuthenticatedUser;
 
-export async function getUserProfile(userId: string) {
-  const supabase = createClient();
+export const getUserProfile = cache(async (userId: string) => {
+  const { supabase } = await getAuthenticatedUser();
   const { data } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
   return data;
-}
+});
 
-export async function getProjectMembership(projectId: string, userId: string) {
-  const supabase = createClient();
+export const getProjectMembership = cache(async (projectId: string, userId: string) => {
+  const { supabase } = await getAuthenticatedUser();
   const { data } = await supabase
     .from('project_members')
     .select('*')
@@ -24,7 +19,7 @@ export async function getProjectMembership(projectId: string, userId: string) {
     .eq('user_id', userId)
     .maybeSingle();
   return data;
-}
+});
 
 export async function canManageProject(projectId: string, userId: string) {
   const profile = await getUserProfile(userId);

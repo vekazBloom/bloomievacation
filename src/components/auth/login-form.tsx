@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
+import { markInvitationSyncCompleted } from '@/lib/invitations/session-sync';
+import { sanitizeInternalRedirectPath } from '@/lib/security/redirect';
 
 const schema = z.object({
   email: z.string().email('Please enter a valid email'),
@@ -47,12 +49,20 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
 
     toast.success('Welcome back!');
 
-    if (redirectTo?.includes('/api/invitations/accept')) {
-      window.location.href = redirectTo;
+    const nextPath = sanitizeInternalRedirectPath(redirectTo);
+    if (nextPath.startsWith('/api/invitations/accept')) {
+      window.location.href = nextPath;
       return;
     }
 
-    router.push(redirectTo || '/dashboard');
+    await fetch('/api/invitations/sync', { method: 'POST' });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user?.id) {
+      markInvitationSyncCompleted(user.id);
+    }
+    router.push(nextPath);
     router.refresh();
   }
 

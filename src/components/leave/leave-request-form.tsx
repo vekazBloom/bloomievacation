@@ -7,8 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
+import { projectPath } from '@/lib/projects/paths';
 
-export function LeaveRequestForm({ projectId }: { projectId: string }) {
+export function LeaveRequestForm({
+  projectId,
+  projectSlug,
+}: {
+  projectId: string;
+  projectSlug: string;
+}) {
   const router = useRouter();
   const supabase = createClient();
   const [type, setType] = useState<'annual' | 'sick'>('annual');
@@ -83,7 +90,7 @@ export function LeaveRequestForm({ projectId }: { projectId: string }) {
 
     if (!response.ok) return toast.error(payload.error || 'Failed to submit request');
     toast.success('Leave request submitted');
-    router.push(`/projects/${projectId}/requests`);
+    router.push(projectPath(projectSlug, 'requests'));
     router.refresh();
   }
 

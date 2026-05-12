@@ -396,6 +396,7 @@ export type Database = {
           is_archived: boolean | null
           logo_url: string | null
           name: string
+          slug: string
           updated_at: string | null
           vacation_threshold_percent: number | null
           year_reset_day: number | null
@@ -413,6 +414,7 @@ export type Database = {
           is_archived?: boolean | null
           logo_url?: string | null
           name: string
+          slug?: string
           updated_at?: string | null
           vacation_threshold_percent?: number | null
           year_reset_day?: number | null
@@ -430,6 +432,7 @@ export type Database = {
           is_archived?: boolean | null
           logo_url?: string | null
           name?: string
+          slug?: string
           updated_at?: string | null
           vacation_threshold_percent?: number | null
           year_reset_day?: number | null

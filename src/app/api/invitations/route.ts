@@ -105,7 +105,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Invitation created, but the email could not be sent',
-        inviteToken: invite.token,
       },
       { status: 502 }
     );

@@ -6,6 +6,7 @@ import {
 } from '@/lib/leave/notify';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { canReviewLeave, getCurrentUser } from '@/lib/projects/access';
+import { isValidSickLeaveAttachmentPath } from '@/lib/security/attachment';
 import { createServiceClient } from '@/lib/supabase/server';
 
 const updateSchema = z.object({
@@ -116,6 +117,13 @@ export async function PATCH(
   }
 
   if (!isOwner) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (
+    parsed.data.attachmentUrl &&
+    !isValidSickLeaveAttachmentPath(parsed.data.attachmentUrl, existing.user_id)
+  ) {
+    return NextResponse.json({ error: 'Invalid attachment path' }, { status: 400 });
+  }
 
   const startDate = parsed.data.startDate ?? existing.start_date;
   const endDate = parsed.data.endDate ?? existing.end_date;

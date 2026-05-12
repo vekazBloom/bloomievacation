@@ -1,5 +1,11 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import {
+  hasSupabaseAuthCookie,
+  isAuthPage,
+  isPublicPath,
+  shouldRefreshSessionInMiddleware,
+} from '@/lib/supabase/middleware-auth';
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
@@ -14,14 +20,32 @@ function getSupabasePublicEnv() {
   return { url, anonKey };
 }
 
+function redirectToLogin(request: NextRequest) {
+  const url = request.nextUrl.clone();
+  url.pathname = '/login';
+  url.searchParams.set('redirectTo', request.nextUrl.pathname);
+  return NextResponse.redirect(url);
+}
+
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const pathname = request.nextUrl.pathname;
   const env = getSupabasePublicEnv();
 
   if (!env) {
     console.error(
       '[middleware] Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY'
     );
+    return isPublicPath(pathname) ? response : redirectToLogin(request);
+  }
+
+  if (isPublicPath(pathname)) {
+    if (!isAuthPage(pathname) || !hasSupabaseAuthCookie(request)) {
+      return response;
+    }
+  } else if (!hasSupabaseAuthCookie(request)) {
+    return redirectToLogin(request);
+  } else if (!shouldRefreshSessionInMiddleware(request, pathname)) {
     return response;
   }
 
@@ -49,22 +73,11 @@ export async function updateSession(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const pathname = request.nextUrl.pathname;
-    const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/signup');
-    const isInvitePage = pathname.startsWith('/invite');
-    const isPublicAsset =
-      pathname.startsWith('/_next') ||
-      pathname.startsWith('/api/auth') ||
-      pathname === '/favicon.ico';
-
-    if (!user && !isAuthPage && !isInvitePage && !isPublicAsset && pathname !== '/') {
-      const url = request.nextUrl.clone();
-      url.pathname = '/login';
-      url.searchParams.set('redirectTo', pathname);
-      return NextResponse.redirect(url);
+    if (!user && !isPublicPath(pathname)) {
+      return redirectToLogin(request);
     }
 
-    if (user && isAuthPage) {
+    if (user && isAuthPage(pathname)) {
       const url = request.nextUrl.clone();
       url.pathname = '/dashboard';
       return NextResponse.redirect(url);
@@ -73,6 +86,6 @@ export async function updateSession(request: NextRequest) {
     return response;
   } catch (error) {
     console.error('[middleware] updateSession failed', error);
-    return NextResponse.next({ request });
+    return isPublicPath(pathname) ? NextResponse.next({ request }) : redirectToLogin(request);
   }
 }

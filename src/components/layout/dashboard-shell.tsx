@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import { Sidebar } from '@/components/layout/sidebar';
+import { SessionInvitationSync } from '@/components/layout/session-invitation-sync';
 import { TopBar } from '@/components/layout/top-bar';
 
 type Project = {
   id: string;
+  slug: string;
   name: string;
   logo_url: string | null;
   role: 'admin' | 'lead' | 'employee';
@@ -34,6 +36,7 @@ export function DashboardShell({
 
   return (
     <div className="flex min-h-screen bg-muted/30">
+      <SessionInvitationSync userId={profile.id} />
       <Sidebar
         projects={projects}
         isSystemAdmin={isSystemAdmin}

@@ -1,27 +1,22 @@
 import Link from 'next/link';
 import { CheckCircle2, Plus, Users, FolderKanban } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { getDashboardSession } from '@/lib/auth/dashboard';
+import { RemoteImage } from '@/components/ui/remote-image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
+import { projectPath } from '@/lib/projects/paths';
 
 export default async function ProjectsPage() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const session = await getDashboardSession();
+  if (!session) return null;
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('is_system_admin')
-    .eq('id', user.id)
-    .maybeSingle();
+  const { supabase, user, profile } = session;
 
   const { data: memberships } = await supabase
     .from('project_members')
-    .select('role, projects(id, name, description, logo_url, is_archived, created_at)')
+    .select('role, projects(id, slug, name, description, logo_url, is_archived, created_at)')
     .eq('user_id', user.id);
 
   const projects =
@@ -109,12 +104,14 @@ export default async function ProjectsPage() {
                 key={p.id}
                 className="flex flex-col rounded-lg border border-border bg-card transition-all hover:border-primary/30 hover:shadow-md"
               >
-                <Link href={`/projects/${p.id}`} className="group block flex-1 p-5">
+                <Link href={projectPath(p.slug)} className="group block flex-1 p-5">
                   <div className="flex items-start gap-3">
                     {p.logo_url ? (
-                      <img
+                      <RemoteImage
                         src={p.logo_url}
                         alt=""
+                        width={48}
+                        height={48}
                         className="h-12 w-12 shrink-0 rounded-lg border border-border object-cover"
                       />
                     ) : (
@@ -150,7 +147,7 @@ export default async function ProjectsPage() {
                 {p.canReview ? (
                   <div className="border-t border-border px-5 py-4">
                     <Button asChild className="w-full" variant={pendingCount > 0 ? 'default' : 'outline'}>
-                      <Link href={`/projects/${p.id}/requests`}>
+                      <Link href={projectPath(p.slug, 'requests')}>
                         <CheckCircle2 className="h-4 w-4" />
                         Approve requests
                         {pendingCount > 0 ? ` (${pendingCount})` : ''}

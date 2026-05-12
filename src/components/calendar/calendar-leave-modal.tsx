@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { leaveChipClasses } from '@/lib/calendar/scheduler-theme';
 import { formatDateRange, getInitials } from '@/lib/utils';
+import { projectPath } from '@/lib/projects/paths';
 import type { SchedulerEvent } from '@/components/calendar/team-scheduler';
 
 type CalendarLeaveModalProps = {
@@ -17,7 +18,7 @@ type CalendarLeaveModalProps = {
   subtitle?: string;
   events: SchedulerEvent[];
   canReview?: boolean;
-  projectId?: string;
+  projectSlug?: string;
   onApprove?: (eventId: string) => void;
   onReject?: (eventId: string) => void;
 };
@@ -29,7 +30,7 @@ export function CalendarLeaveModal({
   subtitle,
   events,
   canReview = false,
-  projectId,
+  projectSlug,
   onApprove,
   onReject,
 }: CalendarLeaveModalProps) {
@@ -80,9 +81,11 @@ export function CalendarLeaveModal({
                         <Badge variant="outline" className="uppercase">
                           {event.status || event.type}
                         </Badge>
-                        {event.userId && projectId ? (
+                        {event.userId && projectSlug ? (
                           <Button asChild variant="outline" size="sm">
-                            <Link href={`/projects/${projectId}/members/${event.userId}`}>Open profile</Link>
+                            <Link href={projectPath(projectSlug, 'members', event.userId)}>
+                              Open profile
+                            </Link>
                           </Button>
                         ) : null}
                         {canReview && event.status === 'pending' && event.type !== 'national' ? (

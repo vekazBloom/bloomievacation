@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { SignupForm } from '@/components/auth/signup-form';
 
 export default function SignupPage({
@@ -6,6 +7,10 @@ export default function SignupPage({
 }: {
   searchParams: { invite?: string; email?: string };
 }) {
+  if (!searchParams.invite) {
+    redirect('/login');
+  }
+
   return (
     <div className="rounded-2xl border border-border bg-card/80 p-8 shadow-xl backdrop-blur-sm sm:p-10">
       <div className="mb-8 space-y-2">

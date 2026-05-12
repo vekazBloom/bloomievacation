@@ -1,5 +1,6 @@
 import { sendCarryOverWarningEmail } from '@/lib/email/send';
 import { shouldSendEmail } from '@/lib/email/preferences';
+import { projectPath } from '@/lib/projects/paths';
 import { createInAppNotification } from '@/lib/notifications/in-app';
 import { getAnnualRemaining } from '@/lib/carry-over/remaining';
 import type { AppSupabase } from '@/lib/supabase/app-client';
@@ -9,6 +10,7 @@ type ServiceClient = AppSupabase;
 
 type ProjectRow = {
   id: string;
+  slug: string;
   name: string;
   year_reset_month: number | null;
   year_reset_day: number | null;
@@ -86,7 +88,7 @@ export async function sendCarryOverWarnings(service: ServiceClient, today = new 
   const year = today.getFullYear();
   const { data: projects } = await service
     .from('projects')
-    .select('id, name, year_reset_month, year_reset_day, carry_over_policy')
+    .select('id, slug, name, year_reset_month, year_reset_day, carry_over_policy')
     .eq('is_archived', false);
 
   let warningsSent = 0;
@@ -120,7 +122,7 @@ export async function sendCarryOverWarnings(service: ServiceClient, today = new 
         type: 'carry_over_warning',
         title: 'Annual leave carry-over decision needed',
         message: `${remaining} day(s) remain before the ${year} reset.`,
-        link: `/projects/${project.id}/carry-over`,
+        link: projectPath(project.slug, 'carry-over'),
       });
 
       if (user?.email && (await shouldSendEmail(service, member.user_id))) {
@@ -130,7 +132,7 @@ export async function sendCarryOverWarnings(service: ServiceClient, today = new 
           projectName: project.name,
           daysRemaining: remaining,
           year,
-          projectId: project.id,
+          projectSlug: project.slug,
         });
         warningsSent += 1;
       }
@@ -143,7 +145,7 @@ export async function sendCarryOverWarnings(service: ServiceClient, today = new 
 export async function runYearResetJobs(service: ServiceClient, today = new Date()) {
   const { data: projects } = await service
     .from('projects')
-    .select('id, name, year_reset_month, year_reset_day, carry_over_policy')
+    .select('id, slug, name, year_reset_month, year_reset_day, carry_over_policy')
     .eq('is_archived', false);
 
   let projectsReset = 0;

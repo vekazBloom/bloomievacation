@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
+import { markInvitationSyncCompleted } from '@/lib/invitations/session-sync';
 
 const schema = z.object({
   name: z.string().min(2, 'Please enter your name'),
@@ -45,6 +46,11 @@ export function SignupForm({
   });
 
   async function onSubmit(values: FormValues) {
+    if (!inviteToken) {
+      toast.error('You need a valid invitation to create an account.');
+      return;
+    }
+
     setIsLoading(true);
 
     const normalizedEmail = values.email.trim().toLowerCase();
@@ -100,11 +106,18 @@ export function SignupForm({
       }
 
       toast.success('Account created! Joining your project…');
+      if (data.user?.id) {
+        markInvitationSyncCompleted(data.user.id);
+      }
       window.location.href = '/dashboard';
       return;
     }
 
     setIsLoading(false);
+    await fetch('/api/invitations/sync', { method: 'POST' });
+    if (data.user?.id) {
+      markInvitationSyncCompleted(data.user.id);
+    }
     toast.success('Account created!');
     router.push('/dashboard');
     router.refresh();

@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation';
-import { syncInvitationsForUser } from '@/lib/invitations/status';
-import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { getDashboardSession } from '@/lib/auth/dashboard';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 
 export default async function DashboardLayout({
@@ -8,60 +7,16 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const session = await getDashboardSession();
+  if (!session) redirect('/login');
 
-  if (!user) redirect('/login');
-
-  const { data: profile } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  // Self-heal: if auth user exists but no profile row, create one.
-  if (!profile) {
-    await supabase.from('users').upsert({
-      id: user.id,
-      email: user.email!,
-      name: (user.user_metadata?.name as string) || user.email!.split('@')[0],
-    });
-  }
-
-  if (user.email) {
-    await syncInvitationsForUser(createServiceClient(), {
-      id: user.id,
-      email: user.email,
-      name: (user.user_metadata?.name as string) || profile?.name || null,
-    });
-  }
-
-  // Get user's projects (for sidebar).
-  const { data: memberships } = await supabase
-    .from('project_members')
-    .select('role, projects(id, name, logo_url, is_archived)')
-    .eq('user_id', user.id);
-
-  const projects =
-    (memberships || [])
-      .map((m: any) => ({ ...m.projects, role: m.role }))
-      .filter((p: any) => p && !p.is_archived) || [];
-
-  const profileData = profile || {
-    id: user.id,
-    email: user.email!,
-    name: user.email!.split('@')[0],
-    avatar_url: null,
-    is_system_admin: false,
-  };
+  const { profile, projects } = session;
 
   return (
     <DashboardShell
-      profile={profileData}
+      profile={profile}
       projects={projects}
-      isSystemAdmin={profileData.is_system_admin}
+      isSystemAdmin={profile.is_system_admin}
     >
       {children}
     </DashboardShell>

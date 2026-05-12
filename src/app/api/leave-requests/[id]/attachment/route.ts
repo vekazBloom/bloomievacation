@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { canReviewLeave, getCurrentUser } from '@/lib/projects/access';
+import { isValidSickLeaveAttachmentPath } from '@/lib/security/attachment';
 import { createServiceClient } from '@/lib/supabase/server';
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
@@ -20,6 +21,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   const canReview = await canReviewLeave(requestRow.project_id, user.id);
   if (!isOwner && !canReview) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (!isValidSickLeaveAttachmentPath(requestRow.attachment_url, requestRow.user_id)) {
+    return NextResponse.json({ error: 'Invalid attachment path' }, { status: 403 });
   }
 
   const service = createServiceClient();

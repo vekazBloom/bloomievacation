@@ -5,6 +5,8 @@ import {
   sendRequestSubmittedEmail,
 } from '@/lib/email/send';
 import { shouldSendEmail } from '@/lib/email/preferences';
+import { projectPath } from '@/lib/projects/paths';
+import { getProjectSlugById } from '@/lib/projects/resolve';
 import { formatDateRange } from '@/lib/utils';
 import { createInAppNotification } from '@/lib/notifications/in-app';
 import type { AppSupabase } from '@/lib/supabase/app-client';
@@ -25,6 +27,9 @@ export async function notifyRequestSubmitted(
     endDate: string;
   }
 ) {
+  const { slug: projectSlug } = await getProjectSlugById(service, params.projectId);
+  if (!projectSlug) return;
+
   const { data: reviewers } = await service
     .from('project_members')
     .select('user_id, users(name, email)')
@@ -40,7 +45,7 @@ export async function notifyRequestSubmitted(
       type: 'request_submitted',
       title: `New ${params.leaveType} request from ${params.employeeName}`,
       message: dateRange,
-      link: `/projects/${params.projectId}/requests`,
+      link: projectPath(projectSlug, 'requests'),
     });
 
     if (user?.email && (await shouldSendEmail(service, reviewer.user_id))) {
@@ -52,7 +57,7 @@ export async function notifyRequestSubmitted(
         leaveType: params.leaveType,
         dateRange,
         requestId: params.requestId,
-        projectId: params.projectId,
+        projectSlug,
       });
     }
   }
@@ -72,6 +77,9 @@ export async function notifyRequestDecision(
     reason?: string;
   }
 ) {
+  const { slug: projectSlug } = await getProjectSlugById(service, params.projectId);
+  if (!projectSlug) return;
+
   const { data: employee } = await service
     .from('users')
     .select('name, email')
@@ -88,7 +96,7 @@ export async function notifyRequestDecision(
         ? `Your ${params.leaveType} request was approved`
         : `Your ${params.leaveType} request was not approved`,
     message: dateRange,
-    link: `/projects/${params.projectId}/requests`,
+    link: projectPath(projectSlug, 'requests'),
   });
 
   if (!employee?.email || !(await shouldSendEmail(service, params.employeeUserId))) return;
@@ -101,7 +109,7 @@ export async function notifyRequestDecision(
       leaveType: params.leaveType,
       dateRange,
       requestId: params.requestId,
-      projectId: params.projectId,
+      projectSlug,
     });
   } else {
     await sendRequestRejectedEmail({
@@ -112,7 +120,7 @@ export async function notifyRequestDecision(
       dateRange,
       reason: params.reason,
       requestId: params.requestId,
-      projectId: params.projectId,
+      projectSlug,
     });
   }
 }
@@ -129,6 +137,9 @@ export async function notifyRequestEdited(
     endDate: string;
   }
 ) {
+  const { slug: projectSlug } = await getProjectSlugById(service, params.projectId);
+  if (!projectSlug) return;
+
   const { data: reviewers } = await service
     .from('project_members')
     .select('user_id, users(name, email)')
@@ -144,7 +155,7 @@ export async function notifyRequestEdited(
       type: 'request_edited',
       title: `Leave request updated in ${params.projectName}`,
       message: dateRange,
-      link: `/projects/${params.projectId}/requests`,
+      link: projectPath(projectSlug, 'requests'),
     });
 
     if (user?.email && (await shouldSendEmail(service, reviewer.user_id))) {
@@ -156,7 +167,7 @@ export async function notifyRequestEdited(
         leaveType: params.leaveType,
         dateRange,
         requestId: params.requestId,
-        projectId: params.projectId,
+        projectSlug,
       });
     }
   }

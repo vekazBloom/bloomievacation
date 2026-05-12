@@ -15,7 +15,7 @@ type SearchUser = {
   email: string;
 };
 
-export function AddExistingMemberForm({ projectId }: { projectId: string }) {
+export function AddExistingMemberForm({ projectSlug }: { projectSlug: string }) {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchUser[]>([]);
@@ -33,7 +33,7 @@ export function AddExistingMemberForm({ projectId }: { projectId: string }) {
     const timer = window.setTimeout(async () => {
       setIsSearching(true);
       const response = await fetch(
-        `/api/users/search?projectId=${projectId}&q=${encodeURIComponent(query.trim())}`
+        `/api/users/search?projectSlug=${encodeURIComponent(projectSlug)}&q=${encodeURIComponent(query.trim())}`
       );
       const payload = await response.json().catch(() => ({ users: [] }));
       setIsSearching(false);
@@ -41,7 +41,7 @@ export function AddExistingMemberForm({ projectId }: { projectId: string }) {
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [projectId, query]);
+  }, [projectSlug, query]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -51,7 +51,7 @@ export function AddExistingMemberForm({ projectId }: { projectId: string }) {
     }
 
     setIsSubmitting(true);
-    const response = await fetch(`/api/projects/${projectId}/members`, {
+    const response = await fetch(`/api/projects/${encodeURIComponent(projectSlug)}/members`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: selected.id, role }),

@@ -1,5 +1,6 @@
 import { sendReligiousHolidayLoggedEmail } from '@/lib/email/send';
 import { createInAppNotification } from '@/lib/notifications/in-app';
+import { projectPath } from '@/lib/projects/paths';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 
 type ServiceClient = AppSupabase;
@@ -38,12 +39,13 @@ export async function syncReligiousLeaveRequests(
 
   const { data: memberships } = await service
     .from('project_members')
-    .select('project_id, projects(name)')
+    .select('project_id, projects(name, slug)')
     .eq('user_id', userId);
 
   const { data: user } = await service.from('users').select('name, email').eq('id', userId).maybeSingle();
 
   for (const membership of memberships || []) {
+    const projectMeta = membership.projects as { name?: string; slug?: string } | null;
     for (const holiday of holidays || []) {
       const holidayDate = resolveHolidayDate(holiday.date, year, holiday.is_recurring ?? true);
       const { data: request } = await service
@@ -74,19 +76,19 @@ export async function syncReligiousLeaveRequests(
           type: 'religious_holiday_logged',
           title: `${user?.name || 'A teammate'} logged ${holiday.name}`,
           message: `Religious holiday on ${holidayDate}`,
-          link: `/projects/${membership.project_id}/calendar`,
+          link: projectMeta?.slug ? projectPath(projectMeta.slug, 'calendar') : '/projects',
         });
 
         const email = (reviewer.users as { email?: string; name?: string } | null)?.email;
-        if (email) {
+        if (email && projectMeta?.slug) {
           await sendReligiousHolidayLoggedEmail({
             to: email,
             managerName: (reviewer.users as { name?: string } | null)?.name || 'Team lead',
             employeeName: user?.name || 'A teammate',
-            projectName: (membership.projects as { name?: string } | null)?.name || 'Project',
+            projectName: projectMeta?.name || 'Project',
             holidayName: holiday.name,
             holidayDate,
-            projectId: membership.project_id,
+            projectSlug: projectMeta.slug,
           });
         }
       }

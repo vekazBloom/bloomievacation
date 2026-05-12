@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { leaveChipClasses } from '@/lib/calendar/scheduler-theme';
 import { formatDateRange, getInitials } from '@/lib/utils';
-import 'react-day-picker/dist/style.css';
+import { projectPath } from '@/lib/projects/paths';
 
 export type SchedulerEvent = {
   id: string;
@@ -50,7 +50,7 @@ type TeamSchedulerProps = {
   events: SchedulerEvent[];
   members?: SchedulerMember[];
   canReview?: boolean;
-  projectId?: string;
+  projectSlug?: string;
   showMemberFilters?: boolean;
 };
 
@@ -114,7 +114,7 @@ export function TeamScheduler({
   events,
   members = [],
   canReview = false,
-  projectId,
+  projectSlug,
   showMemberFilters = true,
 }: TeamSchedulerProps) {
   const router = useRouter();
@@ -143,6 +143,29 @@ export function TeamScheduler({
     });
   }, [events, activeTypes, activeMembers, search, showMemberFilters]);
 
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, SchedulerEvent[]>();
+
+    for (const event of filteredEvents) {
+      const start = parseISO(event.startDate);
+      const end = parseISO(event.endDate);
+      const cursor = new Date(start);
+
+      while (cursor <= end) {
+        const key = format(cursor, 'yyyy-MM-dd');
+        const bucket = map.get(key);
+        if (bucket) {
+          bucket.push(event);
+        } else {
+          map.set(key, [event]);
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
+    return map;
+  }, [filteredEvents]);
+
   const monthDays = useMemo(() => {
     const start = startOfWeek(startOfMonth(month), { weekStartsOn: 1 });
     const end = endOfWeek(endOfMonth(month), { weekStartsOn: 1 });
@@ -157,9 +180,9 @@ export function TeamScheduler({
   });
 
   const selectedEvent = filteredEvents.find((event) => event.id === selectedEventId) || null;
-  const selectedDayEvents = filteredEvents.filter((event) =>
-    selectedDay ? eventMatchesDay(event, selectedDay) : false
-  );
+  const selectedDayEvents = selectedDay
+    ? eventsByDay.get(format(selectedDay, 'yyyy-MM-dd')) || []
+    : [];
 
   const modalEvents = useMemo(() => {
     if (!rangeAnchor || !rangeEnd) return [];
@@ -278,7 +301,7 @@ export function TeamScheduler({
 
         <div className="grid grid-cols-7">
           {monthDays.map((day) => {
-            const dayEvents = filteredEvents.filter((event) => eventMatchesDay(event, day));
+            const dayEvents = eventsByDay.get(format(day, 'yyyy-MM-dd')) || [];
             const isOutside = !isSameMonth(day, month);
             const isSelected =
               rangeAnchor && rangeEnd ? isDayInRange(day, rangeAnchor, rangeEnd) : selectedDay ? isSameDay(day, selectedDay) : false;
@@ -462,9 +485,11 @@ export function TeamScheduler({
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                {selectedEvent.userId && projectId ? (
+                {selectedEvent.userId && projectSlug ? (
                   <Button asChild variant="outline" size="sm">
-                    <Link href={`/projects/${projectId}/members/${selectedEvent.userId}`}>Open profile</Link>
+                    <Link href={projectPath(projectSlug, 'members', selectedEvent.userId)}>
+                      Open profile
+                    </Link>
                   </Button>
                 ) : null}
                 {canReview && selectedEvent.status === 'pending' && selectedEvent.type !== 'national' ? (
@@ -494,7 +519,7 @@ export function TeamScheduler({
         }
         events={modalEvents}
         canReview={canReview}
-        projectId={projectId}
+        projectSlug={projectSlug}
         onApprove={(eventId) => reviewRequest(eventId, 'approve')}
         onReject={(eventId) => reviewRequest(eventId, 'reject')}
       />

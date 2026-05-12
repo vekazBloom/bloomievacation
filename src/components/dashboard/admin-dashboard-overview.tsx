@@ -2,12 +2,15 @@ import Link from 'next/link';
 import { ArrowRight, CalendarDays, ClipboardList, FolderKanban, Plus, Settings, Users } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { RemoteImage } from '@/components/ui/remote-image';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { getInitials } from '@/lib/utils';
+import { projectPath } from '@/lib/projects/paths';
 
 export type AdminProjectOverview = {
   id: string;
+  slug: string;
   name: string;
   description?: string | null;
   logo_url?: string | null;
@@ -131,9 +134,11 @@ export function AdminDashboardOverview({ profile, projects }: AdminDashboardOver
                 >
                   <div className="flex items-start gap-3">
                     {project.logo_url ? (
-                      <img
+                      <RemoteImage
                         src={project.logo_url}
                         alt=""
+                        width={48}
+                        height={48}
                         className="h-12 w-12 shrink-0 rounded-lg border border-border object-cover"
                       />
                     ) : (
@@ -144,7 +149,7 @@ export function AdminDashboardOverview({ profile, projects }: AdminDashboardOver
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">
                         <Link
-                          href={`/projects/${project.id}`}
+                          href={projectPath(project.slug)}
                           className="truncate font-display text-lg font-medium leading-tight transition-colors hover:text-primary"
                         >
                           {project.name}
@@ -176,19 +181,19 @@ export function AdminDashboardOverview({ profile, projects }: AdminDashboardOver
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Button asChild size="sm" variant="outline" className="h-8">
-                      <Link href={`/projects/${project.id}/calendar`}>
+                      <Link href={projectPath(project.slug, 'calendar')}>
                         <CalendarDays className="h-3.5 w-3.5" />
                         Calendar
                       </Link>
                     </Button>
                     <Button asChild size="sm" variant="outline" className="h-8">
-                      <Link href={`/projects/${project.id}/requests`}>
+                      <Link href={projectPath(project.slug, 'requests')}>
                         <ClipboardList className="h-3.5 w-3.5" />
                         Requests
                       </Link>
                     </Button>
                     <Button asChild size="sm" variant="ghost" className="h-8">
-                      <Link href={`/projects/${project.id}/settings`}>
+                      <Link href={projectPath(project.slug, 'settings')}>
                         <Settings className="h-3.5 w-3.5" />
                         Settings
                       </Link>

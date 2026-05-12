@@ -1,20 +1,16 @@
 import { ReligiousSelectionForm } from '@/components/profile/religious-selection-form';
-import { createClient } from '@/lib/supabase/server';
+import { getDashboardSession } from '@/lib/auth/dashboard';
+import { RemoteImage } from '@/components/ui/remote-image';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { getInitials } from '@/lib/utils';
 
 export default async function ProfilePage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const session = await getDashboardSession();
+  if (!session) return null;
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
+  const { supabase, user, profile } = session;
 
   const { data: memberships } = await supabase
     .from('project_members')
@@ -93,9 +89,11 @@ export default async function ProfilePage() {
                 <li key={m.projects.id} className="flex items-center justify-between gap-3 px-6 py-3">
                   <div className="flex items-center gap-3 min-w-0">
                     {m.projects.logo_url ? (
-                      <img
+                      <RemoteImage
                         src={m.projects.logo_url}
                         alt=""
+                        width={32}
+                        height={32}
                         className="h-8 w-8 shrink-0 rounded-md object-cover"
                       />
                     ) : (

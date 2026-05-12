@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { ProjectOverviewStats } from '@/lib/projects/overview';
 import { formatDateRange } from '@/lib/utils';
+import { projectPath } from '@/lib/projects/paths';
 
 function UtilizationBar({
   label,
@@ -60,10 +61,10 @@ function DistributionBar({
 }
 
 export function ProjectOverviewInsights({
-  projectId,
+  projectSlug,
   stats,
 }: {
-  projectId: string;
+  projectSlug: string;
   stats: ProjectOverviewStats;
 }) {
   const requestTotal = Math.max(
@@ -221,7 +222,7 @@ export function ProjectOverviewInsights({
               <h2 className="font-display text-lg">Upcoming leave</h2>
               <p className="text-sm text-muted-foreground">Next approved and pending absences.</p>
             </div>
-            <Link href={`/projects/${projectId}/calendar`} className="text-sm text-primary hover:underline">
+            <Link href={projectPath(projectSlug, 'calendar')} className="text-sm text-primary hover:underline">
               Open calendar
             </Link>
           </div>
@@ -232,7 +233,7 @@ export function ProjectOverviewInsights({
               stats.upcomingLeave.map((request) => (
                 <Link
                   key={request.id}
-                  href={`/projects/${projectId}/requests`}
+                  href={projectPath(projectSlug, 'requests')}
                   className="flex items-center justify-between gap-3 px-6 py-4 transition-colors hover:bg-accent/30"
                 >
                   <div className="min-w-0">

@@ -1,21 +1,14 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getDashboardSession } from '@/lib/auth/dashboard';
 import { NewProjectForm } from '@/components/projects/new-project-form';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
 export default async function NewProjectPage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  const session = await getDashboardSession();
+  if (!session) redirect('/login');
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('is_system_admin')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (!profile?.is_system_admin) {
+  if (!session.profile.is_system_admin) {
     redirect('/projects');
   }
 

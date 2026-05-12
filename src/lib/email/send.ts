@@ -10,6 +10,7 @@ import type { NotificationType } from '@/types/database';
 import { absoluteAppUrl } from './app-url';
 import { formatEmailDate, formatLeaveTypeLabel, formatRoleLabel } from './format';
 import { sendEmail } from './resend';
+import { projectPath } from '@/lib/projects/paths';
 
 export async function sendInviteReceivedEmail(params: {
   to: string;
@@ -39,7 +40,7 @@ export async function sendProjectAddedEmail(params: {
   recipientName: string;
   projectName: string;
   addedByName: string;
-  projectId: string;
+  projectSlug: string;
 }) {
   return sendEmail({
     to: params.to,
@@ -48,7 +49,7 @@ export async function sendProjectAddedEmail(params: {
       recipientName: params.recipientName,
       projectName: params.projectName,
       addedByName: params.addedByName,
-      projectUrl: absoluteAppUrl(`/projects/${params.projectId}`),
+      projectUrl: absoluteAppUrl(projectPath(params.projectSlug)),
     }),
   });
 }
@@ -61,7 +62,7 @@ export async function sendRequestSubmittedEmail(params: {
   leaveType: string;
   dateRange: string;
   requestId: string;
-  projectId: string;
+  projectSlug: string;
 }) {
   return sendEmail({
     to: params.to,
@@ -72,7 +73,7 @@ export async function sendRequestSubmittedEmail(params: {
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
       dateRange: params.dateRange,
-      requestUrl: absoluteAppUrl(`/projects/${params.projectId}/requests/${params.requestId}`),
+      requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
 }
@@ -84,7 +85,7 @@ export async function sendRequestApprovedEmail(params: {
   leaveType: string;
   dateRange: string;
   requestId: string;
-  projectId: string;
+  projectSlug: string;
 }) {
   return sendEmail({
     to: params.to,
@@ -94,7 +95,7 @@ export async function sendRequestApprovedEmail(params: {
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
       dateRange: params.dateRange,
-      requestUrl: absoluteAppUrl(`/projects/${params.projectId}/requests/${params.requestId}`),
+      requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
 }
@@ -107,7 +108,7 @@ export async function sendRequestRejectedEmail(params: {
   dateRange: string;
   reason?: string;
   requestId: string;
-  projectId: string;
+  projectSlug: string;
 }) {
   return sendEmail({
     to: params.to,
@@ -118,7 +119,7 @@ export async function sendRequestRejectedEmail(params: {
       leaveType: formatLeaveTypeLabel(params.leaveType),
       dateRange: params.dateRange,
       reason: params.reason,
-      requestUrl: absoluteAppUrl(`/projects/${params.projectId}/requests/${params.requestId}`),
+      requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
 }
@@ -131,7 +132,7 @@ export async function sendRequestEditedEmail(params: {
   leaveType: string;
   dateRange: string;
   requestId: string;
-  projectId: string;
+  projectSlug: string;
 }) {
   return sendEmail({
     to: params.to,
@@ -142,7 +143,7 @@ export async function sendRequestEditedEmail(params: {
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
       dateRange: params.dateRange,
-      requestUrl: absoluteAppUrl(`/projects/${params.projectId}/requests/${params.requestId}`),
+      requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
 }
@@ -154,7 +155,7 @@ export async function sendReligiousHolidayLoggedEmail(params: {
   projectName: string;
   holidayName: string;
   holidayDate: string;
-  projectId: string;
+  projectSlug: string;
 }) {
   return sendEmail({
     to: params.to,
@@ -165,7 +166,7 @@ export async function sendReligiousHolidayLoggedEmail(params: {
       projectName: params.projectName,
       holidayName: params.holidayName,
       holidayDate: formatEmailDate(params.holidayDate),
-      calendarUrl: absoluteAppUrl(`/projects/${params.projectId}/calendar`),
+      calendarUrl: absoluteAppUrl(projectPath(params.projectSlug, 'calendar')),
     }),
   });
 }
@@ -176,7 +177,7 @@ export async function sendCarryOverWarningEmail(params: {
   projectName: string;
   daysRemaining: number;
   year: number;
-  projectId: string;
+  projectSlug: string;
 }) {
   return sendEmail({
     to: params.to,
@@ -186,7 +187,7 @@ export async function sendCarryOverWarningEmail(params: {
       projectName: params.projectName,
       daysRemaining: params.daysRemaining,
       year: params.year,
-      decisionUrl: absoluteAppUrl(`/projects/${params.projectId}/carry-over`),
+      decisionUrl: absoluteAppUrl(projectPath(params.projectSlug, 'carry-over')),
     }),
   });
 }
@@ -211,7 +212,7 @@ export async function sendNotificationEmail(
         recipientName: String(params.recipientName),
         projectName: String(params.projectName),
         addedByName: String(params.addedByName),
-        projectId: String(params.projectId),
+        projectSlug: String(params.projectSlug),
       });
     case 'request_submitted':
       return sendRequestSubmittedEmail({
@@ -222,7 +223,7 @@ export async function sendNotificationEmail(
         leaveType: String(params.leaveType),
         dateRange: String(params.dateRange),
         requestId: String(params.requestId),
-        projectId: String(params.projectId),
+        projectSlug: String(params.projectSlug),
       });
     case 'request_approved':
       return sendRequestApprovedEmail({
@@ -232,7 +233,7 @@ export async function sendNotificationEmail(
         leaveType: String(params.leaveType),
         dateRange: String(params.dateRange),
         requestId: String(params.requestId),
-        projectId: String(params.projectId),
+        projectSlug: String(params.projectSlug),
       });
     case 'request_rejected':
       return sendRequestRejectedEmail({
@@ -243,7 +244,7 @@ export async function sendNotificationEmail(
         dateRange: String(params.dateRange),
         reason: params.reason ? String(params.reason) : undefined,
         requestId: String(params.requestId),
-        projectId: String(params.projectId),
+        projectSlug: String(params.projectSlug),
       });
     case 'request_edited':
       return sendRequestEditedEmail({
@@ -254,7 +255,7 @@ export async function sendNotificationEmail(
         leaveType: String(params.leaveType),
         dateRange: String(params.dateRange),
         requestId: String(params.requestId),
-        projectId: String(params.projectId),
+        projectSlug: String(params.projectSlug),
       });
     case 'religious_holiday_logged':
       return sendReligiousHolidayLoggedEmail({
@@ -264,7 +265,7 @@ export async function sendNotificationEmail(
         projectName: String(params.projectName),
         holidayName: String(params.holidayName),
         holidayDate: String(params.holidayDate),
-        projectId: String(params.projectId),
+        projectSlug: String(params.projectSlug),
       });
     case 'carry_over_warning':
       return sendCarryOverWarningEmail({
@@ -273,7 +274,7 @@ export async function sendNotificationEmail(
         projectName: String(params.projectName),
         daysRemaining: Number(params.daysRemaining),
         year: Number(params.year),
-        projectId: String(params.projectId),
+        projectSlug: String(params.projectSlug),
       });
     default:
       return { success: false, error: new Error(`Unsupported notification type: ${type}`) };

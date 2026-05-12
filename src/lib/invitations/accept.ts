@@ -1,5 +1,6 @@
 import { sendProjectAddedEmail } from '@/lib/email/send';
 import { closePendingInvitationsForEmail } from '@/lib/invitations/status';
+import { projectPath } from '@/lib/projects/paths';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import type { ProjectRole } from '@/types/database';
 
@@ -81,37 +82,37 @@ export async function fulfillInvitation(
   const shouldNotify = options?.notify !== false && !existingMembership;
 
   if (shouldNotify) {
-    await service.from('notifications').insert({
-      user_id: user.id,
-      type: 'project_added',
-      title: 'You joined a new project',
-      message: `Welcome aboard! You're now part of the team.`,
-      link: `/projects/${invite.project_id}`,
-    });
-
     const { data: project } = await service
       .from('projects')
-      .select('name')
+      .select('name, slug')
       .eq('id', invite.project_id)
       .maybeSingle();
 
-    const { data: inviter } = invite.sent_by
-      ? await service.from('users').select('name').eq('id', invite.sent_by).maybeSingle()
-      : { data: null };
+    if (project?.slug) {
+      await service.from('notifications').insert({
+        user_id: user.id,
+        type: 'project_added',
+        title: 'You joined a new project',
+        message: `Welcome aboard! You're now part of the team.`,
+        link: projectPath(project.slug),
+      });
 
-    const { data: profile } = await service
-      .from('users')
-      .select('name')
-      .eq('id', user.id)
-      .maybeSingle();
+      const { data: inviter } = invite.sent_by
+        ? await service.from('users').select('name').eq('id', invite.sent_by).maybeSingle()
+        : { data: null };
 
-    if (project) {
+      const { data: profile } = await service
+        .from('users')
+        .select('name')
+        .eq('id', user.id)
+        .maybeSingle();
+
       await sendProjectAddedEmail({
         to: user.email,
         recipientName: profile?.name || user.email.split('@')[0],
         projectName: project.name,
         addedByName: inviter?.name || 'Your team',
-        projectId: invite.project_id,
+        projectSlug: project.slug,
       });
     }
   }

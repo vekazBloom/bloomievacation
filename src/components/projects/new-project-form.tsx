@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient } from '@/lib/supabase/client';
+import { projectPath } from '@/lib/projects/paths';
 
 const schema = z.object({
   name: z.string().min(2, 'Project name is too short').max(80),
@@ -77,7 +78,7 @@ export function NewProjectForm() {
         carry_over_policy: values.carry_over_policy,
         created_by: user.id,
       })
-      .select()
+      .select('id, slug')
       .single();
 
     if (projectErr || !project) {
@@ -86,6 +87,7 @@ export function NewProjectForm() {
       return;
     }
 
+    const projectSlug = (project as { id: string; slug: string }).slug;
     // 2. Upload logo if provided.
     let logoUrl: string | null = null;
     if (logoFile) {
@@ -114,7 +116,7 @@ export function NewProjectForm() {
 
     setIsLoading(false);
     toast.success(`Project "${values.name}" created`);
-    router.push(`/projects/${project.id}`);
+    router.push(projectPath(projectSlug));
     router.refresh();
   }
 

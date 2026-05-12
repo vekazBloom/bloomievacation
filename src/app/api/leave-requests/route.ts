@@ -4,6 +4,7 @@ import { notifyRequestSubmitted } from '@/lib/leave/notify';
 import { leaveRequestWithUserAvatarSelect } from '@/lib/leave/queries';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { getCurrentUser } from '@/lib/projects/access';
+import { isValidSickLeaveAttachmentPath } from '@/lib/security/attachment';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { LeaveType } from '@/types/database';
 
@@ -46,6 +47,14 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
 
   const { projectId, type, startDate, endDate, reason, attachmentUrl } = parsed.data;
+
+  if (attachmentUrl && type !== 'sick') {
+    return NextResponse.json({ error: 'Attachments are only allowed for sick leave' }, { status: 400 });
+  }
+
+  if (attachmentUrl && !isValidSickLeaveAttachmentPath(attachmentUrl, user.id)) {
+    return NextResponse.json({ error: 'Invalid attachment path' }, { status: 400 });
+  }
 
   const { data: workingDays, error: workingDaysError } = await supabase.rpc(
     'calculate_working_days',

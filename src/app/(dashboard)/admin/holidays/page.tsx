@@ -1,20 +1,14 @@
 import { redirect } from 'next/navigation';
 import { HolidaysAdminPanel } from '@/components/admin/holidays-admin-panel';
-import { createClient } from '@/lib/supabase/server';
+import { getDashboardSession } from '@/lib/auth/dashboard';
 import { Card, CardContent } from '@/components/ui/card';
 
 export default async function HolidaysPage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  const session = await getDashboardSession();
+  if (!session) redirect('/login');
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('is_system_admin')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (!profile?.is_system_admin) redirect('/dashboard');
+  const { supabase, profile } = session;
+  if (!profile.is_system_admin) redirect('/dashboard');
 
   const { data: nationalHolidays } = await supabase
     .from('national_holidays')

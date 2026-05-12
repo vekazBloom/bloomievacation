@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatRoleLabel } from '@/lib/email/format';
+import { projectPath } from '@/lib/projects/paths';
 
 type MemberRow = {
   id: string;
@@ -24,10 +25,10 @@ type MemberRow = {
 };
 
 export function MemberManagerRow({
-  projectId,
+  projectSlug,
   member,
 }: {
-  projectId: string;
+  projectSlug: string;
   member: MemberRow;
 }) {
   const router = useRouter();
@@ -40,7 +41,7 @@ export function MemberManagerRow({
 
   async function saveChanges() {
     setIsSaving(true);
-    const response = await fetch(`/api/projects/${projectId}/members/${member.id}`, {
+    const response = await fetch(`/api/projects/${encodeURIComponent(projectSlug)}/members/${member.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -66,7 +67,7 @@ export function MemberManagerRow({
     if (!window.confirm(`Remove ${member.users.name} from this project?`)) return;
 
     setIsDeleting(true);
-    const response = await fetch(`/api/projects/${projectId}/members/${member.id}`, {
+    const response = await fetch(`/api/projects/${encodeURIComponent(projectSlug)}/members/${member.id}`, {
       method: 'DELETE',
     });
     const payload = await response.json().catch(() => ({}));
@@ -85,7 +86,7 @@ export function MemberManagerRow({
     <div className="grid gap-4 border-b border-border px-6 py-4 lg:grid-cols-[minmax(0,1.2fr)_repeat(4,minmax(0,0.6fr))_auto] lg:items-end">
       <div>
         <Link
-          href={`/projects/${projectId}/members/${member.users.id}`}
+          href={projectPath(projectSlug, 'members', member.users.id)}
           className="font-medium hover:underline"
         >
           {member.users.name}

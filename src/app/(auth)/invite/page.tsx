@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation';
 import { createServiceClient } from '@/lib/supabase/server';
-import { createClient } from '@/lib/supabase/server';
+import { getAuthenticatedUser } from '@/lib/auth/dashboard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
+import { RemoteImage } from '@/components/ui/remote-image';
 
 type Props = { searchParams: { token?: string } };
 
@@ -35,8 +36,7 @@ export default async function InvitePage({ searchParams }: Props) {
   }
 
   // Check if user is logged in.
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { user } = await getAuthenticatedUser();
 
   // Check if a user with this email already exists.
   const { data: existingUser } = await service
@@ -107,9 +107,11 @@ function InviteCard({
     <div className="rounded-2xl border border-border bg-card/80 p-8 shadow-xl backdrop-blur-sm sm:p-10">
       <div className="mb-6 flex items-center gap-4">
         {project?.logo_url ? (
-          <img
+          <RemoteImage
             src={project.logo_url}
             alt={project.name}
+            width={56}
+            height={56}
             className="h-14 w-14 rounded-lg border border-border object-cover"
           />
         ) : (

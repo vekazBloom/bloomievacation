@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { z } from 'zod';
+import { NATIONAL_HOLIDAYS_CACHE_TAG } from '@/lib/holidays/national';
 import { getCurrentUser, getUserProfile } from '@/lib/projects/access';
 
 const schema = z.object({
@@ -29,6 +31,7 @@ export async function PATCH(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  revalidateTag(NATIONAL_HOLIDAYS_CACHE_TAG);
   return NextResponse.json({ holiday: data });
 }
 
@@ -43,5 +46,6 @@ export async function DELETE(
 
   const { error } = await supabase.from('national_holidays').delete().eq('id', params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  revalidateTag(NATIONAL_HOLIDAYS_CACHE_TAG);
   return NextResponse.json({ ok: true });
 }

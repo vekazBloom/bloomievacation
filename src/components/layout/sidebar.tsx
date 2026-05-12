@@ -11,12 +11,15 @@ import {
   ShieldCheck,
   Plus,
 } from 'lucide-react';
+import { RemoteImage } from '@/components/ui/remote-image';
 import { cn } from '@/lib/utils';
+import { projectPath } from '@/lib/projects/paths';
 import { BloomLogo } from '@/components/ui/bloom-logo';
 import { Badge } from '@/components/ui/badge';
 
 type Project = {
   id: string;
+  slug: string;
   name: string;
   logo_url: string | null;
   role: 'admin' | 'lead' | 'employee';
@@ -106,11 +109,12 @@ export function Sidebar({
             </p>
             <ul className="space-y-0.5">
               {projects.map((p) => {
-                const isActive = pathname.startsWith(`/projects/${p.id}`);
+                const base = `/projects/${p.slug}`;
+                const isActive = pathname === base || pathname.startsWith(`${base}/`);
                 return (
                   <li key={p.id}>
                     <Link
-                      href={`/projects/${p.id}`}
+                      href={projectPath(p.slug)}
                       onClick={onNavigate}
                       className={cn(
                         'group flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
@@ -120,9 +124,11 @@ export function Sidebar({
                       )}
                     >
                       {p.logo_url ? (
-                        <img
+                        <RemoteImage
                           src={p.logo_url}
                           alt=""
+                          width={20}
+                          height={20}
                           className="h-5 w-5 shrink-0 rounded object-cover"
                         />
                       ) : (

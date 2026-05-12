@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { acceptInvitationToken } from '@/lib/invitations/accept';
+import { syncInvitationsForUser } from '@/lib/invitations/status';
+import { sanitizeInternalRedirectPath } from '@/lib/security/redirect';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -26,12 +28,20 @@ async function acceptInvite(token: string) {
     return result;
   }
 
+  await syncInvitationsForUser(service, {
+    id: user.id,
+    email: user.email,
+    name: (user.user_metadata?.name as string) || null,
+  });
+
   return { ok: true as const, projectId: result.projectId };
 }
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token');
-  const redirectPath = request.nextUrl.searchParams.get('redirect') || '/dashboard';
+  const redirectPath = sanitizeInternalRedirectPath(
+    request.nextUrl.searchParams.get('redirect')
+  );
   if (!token) return NextResponse.redirect(new URL('/?error=no-token', request.url));
 
   const result = await acceptInvite(token);

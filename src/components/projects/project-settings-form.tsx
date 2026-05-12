@@ -8,33 +8,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import type { Database } from '@/types/database.generated';
 import type { CarryOverPolicy } from '@/types/database';
 
-type ProjectSettings = {
-  id: string;
-  name: string;
-  description: string | null;
-  vacation_threshold_percent: number;
-  year_reset_month: number;
-  year_reset_day: number;
-  carry_over_policy: CarryOverPolicy;
-  is_archived: boolean;
-};
+type ProjectRow = Database['public']['Tables']['projects']['Row'];
 
-export function ProjectSettingsForm({ project }: { project: ProjectSettings }) {
+export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
   const router = useRouter();
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description || '');
-  const [threshold, setThreshold] = useState(String(project.vacation_threshold_percent));
-  const [resetMonth, setResetMonth] = useState(String(project.year_reset_month));
-  const [resetDay, setResetDay] = useState(String(project.year_reset_day));
-  const [carryOverPolicy, setCarryOverPolicy] = useState(project.carry_over_policy);
+  const [threshold, setThreshold] = useState(String(project.vacation_threshold_percent ?? 50));
+  const [resetMonth, setResetMonth] = useState(String(project.year_reset_month ?? 1));
+  const [resetDay, setResetDay] = useState(String(project.year_reset_day ?? 1));
+  const [carryOverPolicy, setCarryOverPolicy] = useState(
+    (project.carry_over_policy ?? 'ask') as CarryOverPolicy
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
 
   async function saveSettings() {
     setIsSaving(true);
-    const response = await fetch(`/api/projects/${project.id}`, {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.slug)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -67,7 +61,7 @@ export function ProjectSettingsForm({ project }: { project: ProjectSettings }) {
     if (!confirmed) return;
 
     setIsArchiving(true);
-    const response = await fetch(`/api/projects/${project.id}`, {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.slug)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ archive: !project.is_archived }),

@@ -1,92 +1,21 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { ArrowRight, Plane, Stethoscope, Sparkles, FolderKanban } from 'lucide-react';
-import {
-  AdminDashboardOverview,
-  type AdminProjectOverview,
-} from '@/components/dashboard/admin-dashboard-overview';
-import { createClient } from '@/lib/supabase/server';
+import { DashboardAdminOverviewFallback } from '@/components/dashboard/dashboard-admin-overview-fallback';
+import { DashboardAdminOverviewSection } from '@/components/dashboard/dashboard-admin-overview-section';
+import { getDashboardSession } from '@/lib/auth/dashboard';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { leaveRequestUserEmbed } from '@/lib/leave/queries';
 import { formatDateRange } from '@/lib/utils';
+import { projectPath } from '@/lib/projects/paths';
 
 export default async function DashboardPage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const session = await getDashboardSession();
+  if (!session) return null;
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('name, email, avatar_url, is_system_admin')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  let adminProjects: AdminProjectOverview[] = [];
-
-  if (profile?.is_system_admin) {
-    const { data: projects } = await supabase
-      .from('projects')
-      .select('id, name, description, logo_url')
-      .eq('is_archived', false)
-      .order('name', { ascending: true });
-
-    const projectIds = (projects || []).map((project) => project.id);
-    const memberCounts: Record<string, number> = {};
-    const pendingCounts: Record<string, number> = {};
-    const awayCounts: Record<string, number> = {};
-
-    if (projectIds.length > 0) {
-      const today = new Date().toISOString().split('T')[0];
-      const weekEnd = new Date();
-      weekEnd.setDate(weekEnd.getDate() + 7);
-      const weekEndIso = weekEnd.toISOString().split('T')[0];
-
-      const [{ data: memberRows }, { data: pendingRows }, { data: awayRows }] = await Promise.all([
-        supabase.from('project_members').select('project_id').in('project_id', projectIds),
-        supabase
-          .from('leave_requests')
-          .select('project_id')
-          .in('project_id', projectIds)
-          .eq('status', 'pending'),
-        supabase
-          .from('leave_requests')
-          .select('project_id, user_id')
-          .in('project_id', projectIds)
-          .eq('status', 'approved')
-          .lte('start_date', weekEndIso)
-          .gte('end_date', today),
-      ]);
-
-      (memberRows || []).forEach((row: { project_id: string }) => {
-        memberCounts[row.project_id] = (memberCounts[row.project_id] || 0) + 1;
-      });
-
-      (pendingRows || []).forEach((row: { project_id: string }) => {
-        pendingCounts[row.project_id] = (pendingCounts[row.project_id] || 0) + 1;
-      });
-
-      const awayByProject: Record<string, Set<string>> = {};
-      (awayRows || []).forEach((row: { project_id: string; user_id: string }) => {
-        if (!awayByProject[row.project_id]) awayByProject[row.project_id] = new Set();
-        awayByProject[row.project_id].add(row.user_id);
-      });
-
-      Object.entries(awayByProject).forEach(([projectId, userIds]) => {
-        awayCounts[projectId] = userIds.size;
-      });
-    }
-
-    adminProjects = (projects || []).map((project) => ({
-      id: project.id,
-      name: project.name,
-      description: project.description,
-      logo_url: project.logo_url,
-      memberCount: memberCounts[project.id] || 0,
-      pendingCount: pendingCounts[project.id] || 0,
-      awayThisWeekCount: awayCounts[project.id] || 0,
-    }));
-  }
+  const { supabase, user, profile } = session;
 
   // Aggregate balance across all my projects.
   const { data: memberships } = await supabase
@@ -97,7 +26,7 @@ export default async function DashboardPage() {
       sick_leave_total, sick_leave_used,
       religious_leave_total, religious_leave_used,
       role,
-      projects(id, name, logo_url, is_archived)
+      projects(id, name, logo_url, is_archived, slug)
     `
     )
     .eq('user_id', user.id);
@@ -121,7 +50,7 @@ export default async function DashboardPage() {
   const today = new Date().toISOString().split('T')[0];
   const { data: upcoming } = await supabase
     .from('leave_requests')
-    .select('id, type, status, start_date, end_date, project_id, projects(name)')
+    .select('id, type, status, start_date, end_date, project_id, projects(name, slug)')
     .eq('user_id', user.id)
     .gte('end_date', today)
     .in('status', ['pending', 'approved'])
@@ -137,7 +66,7 @@ export default async function DashboardPage() {
     leadProjectIds.length > 0
       ? await supabase
           .from('leave_requests')
-          .select(`id, type, start_date, end_date, working_days_count, user_id, project_id, ${leaveRequestUserEmbed}(name, avatar_url), projects(name)`)
+          .select(`id, type, start_date, end_date, working_days_count, user_id, project_id, ${leaveRequestUserEmbed}(name, avatar_url), projects(name, slug)`)
           .in('project_id', leadProjectIds)
           .eq('status', 'pending')
           .neq('user_id', user.id)
@@ -153,7 +82,7 @@ export default async function DashboardPage() {
     activeMemberships.length > 0
       ? await supabase
           .from('leave_requests')
-          .select(`id, type, start_date, end_date, ${leaveRequestUserEmbed}(name), projects(name), project_id`)
+          .select(`id, type, start_date, end_date, ${leaveRequestUserEmbed}(name), projects(name, slug), project_id`)
           .in(
             'project_id',
             activeMemberships.map((m: any) => m.projects.id)
@@ -179,14 +108,9 @@ export default async function DashboardPage() {
       </div>
 
       {profile?.is_system_admin ? (
-        <AdminDashboardOverview
-          profile={{
-            name: profile.name,
-            email: profile.email,
-            avatar_url: profile.avatar_url,
-          }}
-          projects={adminProjects}
-        />
+        <Suspense fallback={<DashboardAdminOverviewFallback />}>
+          <DashboardAdminOverviewSection />
+        </Suspense>
       ) : null}
 
       {/* Balance cards */}
@@ -248,7 +172,9 @@ export default async function DashboardPage() {
             (awayThisWeek || []).map((req: any) => (
               <Link
                 key={req.id}
-                href={`/projects/${req.project_id}/requests`}
+                href={
+                  req.projects?.slug ? projectPath(req.projects.slug, 'requests') : '#'
+                }
                 className="flex items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-accent/30"
               >
                 <div className="min-w-0">
@@ -284,7 +210,9 @@ export default async function DashboardPage() {
               (upcoming || []).map((req: any) => (
                 <Link
                   key={req.id}
-                  href={`/projects/${req.project_id}/requests`}
+                  href={
+                    req.projects?.slug ? projectPath(req.projects.slug, 'requests') : '#'
+                  }
                   className="flex items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-accent/30"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -323,7 +251,9 @@ export default async function DashboardPage() {
                 (pendingApprovals || []).map((req: any) => (
                   <Link
                     key={req.id}
-                    href={`/projects/${req.project_id}/requests`}
+                    href={
+                      req.projects?.slug ? projectPath(req.projects.slug, 'requests') : '#'
+                    }
                     className="flex items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-accent/30"
                   >
                     <div className="flex items-center gap-3 min-w-0">
