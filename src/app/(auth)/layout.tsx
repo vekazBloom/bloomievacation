@@ -19,7 +19,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <div className="relative z-10 flex min-h-screen flex-col">
         <header className="px-6 py-6 sm:px-10">
           <Link href="/" aria-label="BloomieVacation home">
-            <BloomLogo />
+            <BloomLogo size={40} />
           </Link>
         </header>
 
