@@ -20,11 +20,16 @@ export async function assertLeaveBalance(
     params.userId
   );
 
-  const useProjectScopedFallback = Boolean(
+  const tableMissing = Boolean(
     globalBalanceError &&
       (globalBalanceError.message.includes('user_leave_balances') ||
         globalBalanceError.message.includes('does not exist'))
   );
+
+  /** When global table exists but this user has no row yet, fall back to project_members for this project. */
+  const globalRowMissing = !tableMissing && !globalBalance && !globalBalanceError;
+
+  const useProjectScopedFallback = tableMissing || globalRowMissing;
 
   const { data: membership, error: membershipError } = useProjectScopedFallback
     ? await supabase
@@ -37,7 +42,7 @@ export async function assertLeaveBalance(
         .maybeSingle()
     : { data: null, error: null };
 
-  if (!useProjectScopedFallback && globalBalanceError) {
+  if (!tableMissing && globalBalanceError) {
     return { ok: false as const, status: 500, error: globalBalanceError.message };
   }
   if (useProjectScopedFallback && membershipError) {
