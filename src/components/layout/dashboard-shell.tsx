@@ -61,7 +61,11 @@ export function DashboardShell({
       ) : null}
 
       <div className="flex flex-1 flex-col">
-        <TopBar profile={profile} onOpenMenu={() => setMobileNavOpen(true)} />
+        <TopBar
+          profile={profile}
+          projects={projects}
+          onOpenMenu={() => setMobileNavOpen(true)}
+        />
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">{children}</main>
       </div>
     </div>

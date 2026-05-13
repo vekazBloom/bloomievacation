@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useMemo } from 'react';
 import {
   LayoutDashboard,
   CalendarDays,
@@ -11,10 +12,13 @@ import {
   ShieldCheck,
   UserX,
   Plus,
+  CalendarPlus,
 } from 'lucide-react';
 import { RemoteImage } from '@/components/ui/remote-image';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { projectPath } from '@/lib/projects/paths';
+import { defaultProjectSlugForNewLeave } from '@/lib/projects/leave-request-cta';
 import { BloomLogo } from '@/components/ui/bloom-logo';
 import { Badge } from '@/components/ui/badge';
 
@@ -38,6 +42,10 @@ export function Sidebar({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const leaveSlug = useMemo(
+    () => defaultProjectSlugForNewLeave(projects, pathname),
+    [projects, pathname]
+  );
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -63,6 +71,25 @@ export function Sidebar({
             <BloomLogo size={28} showText />
           </Link>
       </div>
+
+      {leaveSlug ? (
+        <div className="border-b border-border px-3 pb-4 pt-1">
+          <Button asChild className="w-full font-semibold shadow-md" size="default">
+            <Link href={projectPath(leaveSlug, 'requests', 'new')} onClick={onNavigate}>
+              <CalendarPlus className="h-4 w-4" />
+              Request leave
+            </Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="border-b border-border px-3 pb-4 pt-1">
+          <Button asChild variant="outline" className="w-full text-sm" size="sm">
+            <Link href="/projects" onClick={onNavigate}>
+              Browse projects to request leave
+            </Link>
+          </Button>
+        </div>
+      )}
 
       <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
         <div>
