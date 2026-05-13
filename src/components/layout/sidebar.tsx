@@ -58,7 +58,7 @@ export function Sidebar({
     >
       <div className="border-b border-border px-5 py-5">
           <Link href="/dashboard" onClick={onNavigate}>
-            <BloomLogo size={28} showText={false} />
+            <BloomLogo size={28} showText />
           </Link>
       </div>
 
