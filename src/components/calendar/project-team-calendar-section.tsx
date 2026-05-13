@@ -31,25 +31,72 @@ export async function ProjectTeamCalendarSection({ slug }: { slug: string }) {
     return null;
   }
 
-  const [{ data: requests }, { data: members }, holidays] = await Promise.all([
-    supabase
-      .from('leave_requests')
-      .select(`id, user_id, type, status, start_date, end_date, ${leaveRequestUserEmbed}(name, avatar_url)`)
-      .eq('project_id', projectId)
-      .in('status', ['pending', 'approved']),
-    supabase.from('project_members').select('users(id, name)').eq('project_id', projectId),
+  const [{ data: members }, holidays] = await Promise.all([
+    supabase.from('project_members').select('user_id, users(id, name)').eq('project_id', projectId),
     getNationalHolidays(),
   ]);
 
+  const memberUserIds = [
+    ...new Set(
+      (members || [])
+        .map((row: { user_id?: string }) => row.user_id)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+
+  const { data: requests } =
+    memberUserIds.length > 0
+      ? await supabase
+          .from('leave_requests')
+          .select(
+            `id, user_id, project_id, type, status, start_date, end_date, ${leaveRequestUserEmbed}(name, avatar_url), projects(name, slug)`
+          )
+          .in('user_id', memberUserIds)
+          .in('status', ['pending', 'approved'])
+      : { data: [] };
+
+  const requestRows = requests || [];
+
+  const requestProjectIds = [
+    ...new Set(
+      requestRows.map((r: { project_id?: string }) => r.project_id).filter((id): id is string => Boolean(id))
+    ),
+  ];
+
+  const reviewableProjectIds = new Set<string>();
+  if (requestProjectIds.length > 0) {
+    if (profile.is_system_admin) {
+      requestProjectIds.forEach((id) => reviewableProjectIds.add(id));
+    } else {
+      const { data: reviewMemberships } = await supabase
+        .from('project_members')
+        .select('project_id, role')
+        .eq('user_id', user.id)
+        .in('project_id', requestProjectIds);
+
+      for (const row of reviewMemberships || []) {
+        if (row.role === 'admin' || row.role === 'lead') {
+          reviewableProjectIds.add(row.project_id);
+        }
+      }
+    }
+  }
+
   const schedulerMembers = (members || [])
-    .map((member: { users?: { id: string; name: string } | { id: string; name: string }[] | null }) =>
-      Array.isArray(member.users) ? member.users[0] : member.users
-    )
-    .filter((member): member is { id: string; name: string } => Boolean(member?.id && member?.name))
-    .map((member) => ({ id: member.id, name: member.name }));
+    .map((row: { users?: { id: string; name: string } | { id: string; name: string }[] | null }) => {
+      const u = Array.isArray(row.users) ? row.users[0] : row.users;
+      if (!u?.id || !u?.name) return null;
+      return { id: u.id, name: u.name };
+    })
+    .filter((member): member is { id: string; name: string } => Boolean(member));
 
   const events = [
-    ...(requests || []).map((request) => mapLeaveRequestToEvent(request)),
+    ...requestRows.map((request) =>
+      mapLeaveRequestToEvent(request, {
+        viewingProjectId: project.id,
+        canReviewThisRequest: Boolean(request.project_id && reviewableProjectIds.has(request.project_id)),
+      })
+    ),
     ...(holidays || []).map((holiday) => mapHolidayToEvent(holiday)),
   ];
 

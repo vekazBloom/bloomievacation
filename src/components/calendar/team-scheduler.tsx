@@ -39,6 +39,8 @@ export type SchedulerEvent = {
   status?: 'pending' | 'approved' | 'rejected' | 'cancelled';
   userId?: string;
   avatarUrl?: string;
+  /** When set, overrides global `canReview` for approve/reject (cross-project team calendar). */
+  canReviewThisRequest?: boolean;
 };
 
 export type SchedulerMember = {
@@ -514,7 +516,9 @@ export function TeamScheduler({
                     </Link>
                   </Button>
                 ) : null}
-                {canReview && selectedEvent.status === 'pending' && selectedEvent.type !== 'national' ? (
+                {((selectedEvent.canReviewThisRequest ?? canReview) &&
+                  selectedEvent.status === 'pending' &&
+                  selectedEvent.type !== 'national') ? (
                   <>
                     <Button type="button" size="sm" onClick={() => reviewRequest(selectedEvent.id, 'approve')}>
                       Approve

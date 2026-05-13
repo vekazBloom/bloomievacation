@@ -88,7 +88,9 @@ export function CalendarLeaveModal({
                             </Link>
                           </Button>
                         ) : null}
-                        {canReview && event.status === 'pending' && event.type !== 'national' ? (
+                        {((event.canReviewThisRequest ?? canReview) &&
+                          event.status === 'pending' &&
+                          event.type !== 'national') ? (
                           <>
                             <Button type="button" size="sm" onClick={() => onApprove?.(event.id)}>
                               Approve
