@@ -27,9 +27,11 @@ type MemberRow = {
 export function MemberManagerRow({
   projectSlug,
   member,
+  otherProjects = [],
 }: {
   projectSlug: string;
   member: MemberRow;
+  otherProjects?: Array<{ slug: string; name: string }>;
 }) {
   const router = useRouter();
   const [role, setRole] = useState(member.role);
@@ -92,6 +94,31 @@ export function MemberManagerRow({
           {member.users.name}
         </Link>
         <p className="text-sm text-muted-foreground">{member.users.email}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Badge variant="pending">Global balance sync</Badge>
+          {otherProjects.length > 0 ? (
+            <>
+              <Badge variant="outline">Also in {otherProjects.length} project(s)</Badge>
+              {otherProjects.slice(0, 2).map((project) => (
+                <Link
+                  key={project.slug}
+                  href={projectPath(project.slug)}
+                  className="inline-flex"
+                  title={project.name}
+                >
+                  <Badge variant="secondary" className="max-w-[180px] truncate">
+                    {project.name}
+                  </Badge>
+                </Link>
+              ))}
+              {otherProjects.length > 2 ? (
+                <Badge variant="outline">+{otherProjects.length - 2} more</Badge>
+              ) : null}
+            </>
+          ) : (
+            <Badge variant="outline">Only this project</Badge>
+          )}
+        </div>
       </div>
 
       <div className="space-y-1">

@@ -5,8 +5,10 @@ import { AddExistingMemberForm } from '@/components/projects/add-existing-member
 import { InviteMemberForm } from '@/components/projects/invite-member-form';
 import { MemberManagerRow } from '@/components/projects/member-manager-row';
 import { PendingInvitationsTable } from '@/components/projects/pending-invitations-table';
+import { UsersWithoutProjectsPanel } from '@/components/projects/users-without-projects-panel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { getUserLeaveBalance } from '@/lib/leave/global-balance';
 import {
   closePendingInvitationsForEmail,
   reconcileAcceptedInvitationMemberships,
@@ -38,6 +40,36 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
     )
     .eq('project_id', projectId);
 
+  const memberUserIds = (members || [])
+    .map((member: any) => member.users?.id as string | undefined)
+    .filter((id): id is string => Boolean(id));
+
+  const { data: crossProjectMemberships } =
+    memberUserIds.length > 0
+      ? await supabase
+          .from('project_members')
+          .select('user_id, projects(name, slug)')
+          .in('user_id', memberUserIds)
+          .neq('project_id', projectId)
+      : { data: [] };
+
+  const otherProjectsByUser = (crossProjectMemberships || []).reduce(
+    (acc, membership: any) => {
+      const userId = membership.user_id as string | undefined;
+      const project = Array.isArray(membership.projects)
+        ? membership.projects[0]
+        : membership.projects;
+      if (!userId || !project?.slug || !project?.name) return acc;
+      const existing = acc.get(userId) || [];
+      if (!existing.some((item) => item.slug === project.slug)) {
+        existing.push({ slug: project.slug, name: project.name });
+      }
+      acc.set(userId, existing);
+      return acc;
+    },
+    new Map<string, { slug: string; name: string }[]>()
+  );
+
   for (const member of members || []) {
     const email = (member as { users?: { email?: string } }).users?.email;
     if (email) {
@@ -51,6 +83,39 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
     .eq('project_id', projectId)
     .is('accepted_at', null)
     .order('created_at', { ascending: false });
+
+  const { data: allMemberships } = await supabase.from('project_members').select('user_id, project_id');
+  const usersWithAnyProject = new Set((allMemberships || []).map((membership) => membership.user_id));
+
+  const { data: allUsers } = await supabase.from('users').select('id, name, email').order('name', { ascending: true });
+  const usersWithoutProjects = (allUsers || []).filter((memberUser) => !usersWithAnyProject.has(memberUser.id));
+
+  const orphanUserIds = usersWithoutProjects.map((orphan) => orphan.id);
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: orphanActiveRequests } =
+    orphanUserIds.length > 0
+      ? await supabase
+          .from('leave_requests')
+          .select('user_id')
+          .in('user_id', orphanUserIds)
+          .in('status', ['pending', 'approved'])
+          .gte('end_date', today)
+      : { data: [] };
+
+  const activeRequestCountByUser = (orphanActiveRequests || []).reduce(
+    (acc, row) => {
+      acc.set(row.user_id, (acc.get(row.user_id) || 0) + 1);
+      return acc;
+    },
+    new Map<string, number>()
+  );
+
+  const orphanBalancesByUser = new Map<string, Awaited<ReturnType<typeof getUserLeaveBalance>>['data']>();
+  for (const orphanId of orphanUserIds) {
+    const { data: balance } = await getUserLeaveBalance(supabase, orphanId);
+    orphanBalancesByUser.set(orphanId, balance);
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 animate-fade-in">
@@ -77,7 +142,12 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
         </div>
         <CardContent className="p-0">
           {(members || []).map((member: any) => (
-            <MemberManagerRow key={member.id} projectSlug={project.slug} member={member} />
+            <MemberManagerRow
+              key={member.id}
+              projectSlug={project.slug}
+              member={member}
+              otherProjects={otherProjectsByUser.get(member.users?.id) || []}
+            />
           ))}
         </CardContent>
       </Card>
@@ -90,6 +160,31 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
           expires_at: invite.expires_at,
           created_at: invite.created_at,
         }))}
+      />
+
+      <UsersWithoutProjectsPanel
+        projectSlug={project.slug}
+        users={usersWithoutProjects.map((orphan) => {
+          const balance = orphanBalancesByUser.get(orphan.id);
+          return {
+            id: orphan.id,
+            name: orphan.name,
+            email: orphan.email,
+            balances: balance
+              ? {
+                  annualTotal:
+                    Number(balance.annual_leave_total || 0) +
+                    Number(balance.annual_leave_carried_over || 0),
+                  annualUsed: Number(balance.annual_leave_used || 0),
+                  sickTotal: Number(balance.sick_leave_total || 0),
+                  sickUsed: Number(balance.sick_leave_used || 0),
+                  religiousTotal: Number(balance.religious_leave_total || 0),
+                  religiousUsed: Number(balance.religious_leave_used || 0),
+                }
+              : null,
+            upcomingRequestCount: activeRequestCountByUser.get(orphan.id) || 0,
+          };
+        })}
       />
     </div>
   );
