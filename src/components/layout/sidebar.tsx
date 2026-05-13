@@ -66,10 +66,10 @@ export function Sidebar({
         className
       )}
     >
-      <div className="border-b border-border px-5 py-5">
-          <Link href="/dashboard" onClick={onNavigate}>
-            <BloomLogo size={28} showText />
-          </Link>
+      <div className="border-b border-border px-4 py-5 sm:px-5">
+        <Link href="/dashboard" onClick={onNavigate} className="block max-w-full">
+          <BloomLogo size={48} showText />
+        </Link>
       </div>
 
       {leaveSlug ? (

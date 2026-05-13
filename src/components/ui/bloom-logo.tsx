@@ -5,10 +5,13 @@ const WORDMARK_ASPECT_RATIO = 666 / 375;
 
 export function BloomLogo({
   className,
+  imageClassName,
   size = 32,
   showText = true,
 }: {
   className?: string;
+  /** Extra classes on the wordmark image (e.g. max width in a narrow sidebar). */
+  imageClassName?: string;
   size?: number;
   showText?: boolean;
 }) {
@@ -23,7 +26,8 @@ export function BloomLogo({
           alt="BloomieVacation"
           width={width}
           height={height}
-          className="h-auto w-auto max-w-[220px]"
+          sizes="(max-width: 1024px) 240px, 280px"
+          className={cn('h-auto w-auto max-w-full object-contain object-left', imageClassName)}
           priority
         />
       </div>
