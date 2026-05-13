@@ -64,12 +64,14 @@ export async function POST(
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  const service = createServiceClient();
+
   if (
     annual_leave_total !== undefined ||
     sick_leave_total !== undefined ||
     religious_leave_total !== undefined
   ) {
-    const syncResult = await syncUserLeaveTotals(supabase, userId, {
+    const syncResult = await syncUserLeaveTotals(service, userId, {
       annual_leave_total,
       sick_leave_total,
       religious_leave_total,
@@ -80,7 +82,6 @@ export async function POST(
   }
 
   const { data: actor } = await supabase.from('users').select('name').eq('id', user.id).maybeSingle();
-  const service = createServiceClient();
 
   if (addedUser.email) {
     await closePendingInvitationsForEmail(service, project.id, addedUser.email);

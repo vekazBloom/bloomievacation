@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
 import { canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
+import { createServiceClient } from '@/lib/supabase/server';
 import type { ProjectRole } from '@/types/database';
 
 const updateSchema = z.object({
@@ -47,7 +48,8 @@ export async function PATCH(
     parsed.data.sick_leave_total !== undefined ||
     parsed.data.religious_leave_total !== undefined
   ) {
-    const syncResult = await syncUserLeaveTotals(supabase, data.user_id, {
+    const service = createServiceClient();
+    const syncResult = await syncUserLeaveTotals(service, data.user_id, {
       annual_leave_total: parsed.data.annual_leave_total,
       sick_leave_total: parsed.data.sick_leave_total,
       religious_leave_total: parsed.data.religious_leave_total,
