@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
 import { sendProjectAddedEmail } from '@/lib/email/send';
 import { closePendingInvitationsForEmail } from '@/lib/invitations/status';
 import { createInAppNotification } from '@/lib/notifications/in-app';
@@ -62,6 +63,21 @@ export async function POST(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (
+    annual_leave_total !== undefined ||
+    sick_leave_total !== undefined ||
+    religious_leave_total !== undefined
+  ) {
+    const syncResult = await syncUserLeaveTotals(supabase, userId, {
+      annual_leave_total,
+      sick_leave_total,
+      religious_leave_total,
+    });
+    if (syncResult.error) {
+      return NextResponse.json({ error: syncResult.error.message }, { status: 500 });
+    }
+  }
 
   const { data: actor } = await supabase.from('users').select('name').eq('id', user.id).maybeSingle();
   const service = createServiceClient();

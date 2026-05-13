@@ -528,6 +528,50 @@ export type Database = {
           },
         ]
       }
+      user_leave_balances: {
+        Row: {
+          annual_leave_carried_over: number | null
+          annual_leave_total: number | null
+          annual_leave_used: number | null
+          religious_leave_total: number | null
+          religious_leave_used: number | null
+          sick_leave_total: number | null
+          sick_leave_used: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          annual_leave_carried_over?: number | null
+          annual_leave_total?: number | null
+          annual_leave_used?: number | null
+          religious_leave_total?: number | null
+          religious_leave_used?: number | null
+          sick_leave_total?: number | null
+          sick_leave_used?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          annual_leave_carried_over?: number | null
+          annual_leave_total?: number | null
+          annual_leave_used?: number | null
+          religious_leave_total?: number | null
+          religious_leave_used?: number | null
+          sick_leave_total?: number | null
+          sick_leave_used?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_leave_balances_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           avatar_url: string | null

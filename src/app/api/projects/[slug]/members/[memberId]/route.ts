@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
 import { canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 import type { ProjectRole } from '@/types/database';
@@ -40,6 +41,22 @@ export async function PATCH(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (
+    parsed.data.annual_leave_total !== undefined ||
+    parsed.data.sick_leave_total !== undefined ||
+    parsed.data.religious_leave_total !== undefined
+  ) {
+    const syncResult = await syncUserLeaveTotals(supabase, data.user_id, {
+      annual_leave_total: parsed.data.annual_leave_total,
+      sick_leave_total: parsed.data.sick_leave_total,
+      religious_leave_total: parsed.data.religious_leave_total,
+    });
+    if (syncResult.error) {
+      return NextResponse.json({ error: syncResult.error.message }, { status: 500 });
+    }
+  }
+
   return NextResponse.json({ member: data });
 }
 

@@ -7,6 +7,7 @@ import { getDashboardSession } from '@/lib/auth/dashboard';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getUserLeaveBalance } from '@/lib/leave/global-balance';
 import { leaveRequestUserEmbed } from '@/lib/leave/queries';
 import { formatDateRange } from '@/lib/utils';
 import { projectPath } from '@/lib/projects/paths';
@@ -33,18 +34,39 @@ export default async function DashboardPage() {
 
   const activeMemberships = (memberships || []).filter((m: any) => m.projects && !m.projects.is_archived);
 
-  // Sum balances across projects (a single user can be in multiple).
-  const totals = activeMemberships.reduce(
-    (acc: any, m: any) => ({
-      annualTotal: acc.annualTotal + (m.annual_leave_total || 0) + Number(m.annual_leave_carried_over || 0),
-      annualUsed: acc.annualUsed + Number(m.annual_leave_used || 0),
-      sickTotal: acc.sickTotal + (m.sick_leave_total || 0),
-      sickUsed: acc.sickUsed + Number(m.sick_leave_used || 0),
-      religiousTotal: acc.religiousTotal + (m.religious_leave_total || 0),
-      religiousUsed: acc.religiousUsed + Number(m.religious_leave_used || 0),
-    }),
-    { annualTotal: 0, annualUsed: 0, sickTotal: 0, sickUsed: 0, religiousTotal: 0, religiousUsed: 0 }
-  );
+  const { data: globalBalance } = await getUserLeaveBalance(supabase, user.id);
+
+  // Prefer globally synchronized user balances; fallback to project-sum if migration isn't applied.
+  const totals = globalBalance
+    ? {
+        annualTotal:
+          Number(globalBalance.annual_leave_total || 0) +
+          Number(globalBalance.annual_leave_carried_over || 0),
+        annualUsed: Number(globalBalance.annual_leave_used || 0),
+        sickTotal: Number(globalBalance.sick_leave_total || 0),
+        sickUsed: Number(globalBalance.sick_leave_used || 0),
+        religiousTotal: Number(globalBalance.religious_leave_total || 0),
+        religiousUsed: Number(globalBalance.religious_leave_used || 0),
+      }
+    : activeMemberships.reduce(
+        (acc: any, m: any) => ({
+          annualTotal:
+            acc.annualTotal + (m.annual_leave_total || 0) + Number(m.annual_leave_carried_over || 0),
+          annualUsed: acc.annualUsed + Number(m.annual_leave_used || 0),
+          sickTotal: acc.sickTotal + (m.sick_leave_total || 0),
+          sickUsed: acc.sickUsed + Number(m.sick_leave_used || 0),
+          religiousTotal: acc.religiousTotal + (m.religious_leave_total || 0),
+          religiousUsed: acc.religiousUsed + Number(m.religious_leave_used || 0),
+        }),
+        {
+          annualTotal: 0,
+          annualUsed: 0,
+          sickTotal: 0,
+          sickUsed: 0,
+          religiousTotal: 0,
+          religiousUsed: 0,
+        }
+      );
 
   // Upcoming requests.
   const today = new Date().toISOString().split('T')[0];
