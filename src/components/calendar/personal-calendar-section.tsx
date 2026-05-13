@@ -11,6 +11,7 @@ type RequestRow = {
   status?: 'pending' | 'approved' | 'rejected' | 'cancelled';
   start_date: string;
   end_date: string;
+  reason?: string | null;
   projects?: { name?: string | null } | { name?: string | null }[] | null;
   users?: { name?: string | null; avatar_url?: string | null } | { name?: string | null; avatar_url?: string | null }[] | null;
 };
@@ -30,7 +31,7 @@ export async function PersonalCalendarSection() {
   const [{ data: requests }, holidays] = await Promise.all([
     supabase
       .from('leave_requests')
-      .select(`id, user_id, type, status, start_date, end_date, projects(name), ${leaveRequestUserEmbed}(name, avatar_url)`)
+      .select(`id, user_id, type, status, start_date, end_date, reason, projects(name), ${leaveRequestUserEmbed}(name, avatar_url)`)
       .eq('user_id', user.id)
       .in('status', ['pending', 'approved']),
     getNationalHolidays(),
@@ -42,7 +43,7 @@ export async function PersonalCalendarSection() {
 
   for (const request of typedRequests) {
     if (request.type !== 'religious') continue;
-    const key = `${request.user_id || 'unknown'}|${request.start_date}|${request.end_date}|${request.status || 'approved'}`;
+    const key = `${request.user_id || 'unknown'}|${request.start_date}|${request.end_date}|${request.status || 'approved'}|${request.reason ?? ''}`;
     const existing = groupedReligious.get(key);
     const projectName = getProjectName(request);
     if (existing) {

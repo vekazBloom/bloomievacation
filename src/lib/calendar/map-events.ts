@@ -3,7 +3,7 @@ import type { SchedulerEvent } from '@/components/calendar/team-scheduler';
 type UserEmbed = { name?: string | null; avatar_url?: string | null };
 type ProjectEmbed = { name?: string | null; slug?: string | null };
 
-type LeaveRequestRow = {
+export type LeaveRequestRow = {
   id: string;
   project_id?: string;
   user_id?: string;
@@ -11,6 +11,7 @@ type LeaveRequestRow = {
   status?: SchedulerEvent['status'];
   start_date: string;
   end_date: string;
+  reason?: string | null;
   users?: UserEmbed | UserEmbed[] | null;
   projects?: ProjectEmbed | ProjectEmbed[] | null;
 };
