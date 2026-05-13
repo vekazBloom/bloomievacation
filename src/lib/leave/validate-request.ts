@@ -29,7 +29,10 @@ export async function assertLeaveBalance(
   /** When global table exists but this user has no row yet, fall back to project_members for this project. */
   const globalRowMissing = !tableMissing && !globalBalance && !globalBalanceError;
 
-  const useProjectScopedFallback = tableMissing || globalRowMissing;
+  /** Approvers often cannot SELECT another user's global row (RLS); membership in this project is still readable. */
+  const globalReadFailed = !tableMissing && Boolean(globalBalanceError);
+
+  const useProjectScopedFallback = tableMissing || globalRowMissing || globalReadFailed;
 
   const { data: membership, error: membershipError } = useProjectScopedFallback
     ? await supabase
@@ -42,9 +45,6 @@ export async function assertLeaveBalance(
         .maybeSingle()
     : { data: null, error: null };
 
-  if (!tableMissing && globalBalanceError) {
-    return { ok: false as const, status: 500, error: globalBalanceError.message };
-  }
   if (useProjectScopedFallback && membershipError) {
     return { ok: false as const, status: 500, error: membershipError.message };
   }
