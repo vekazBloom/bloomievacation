@@ -9,6 +9,7 @@ import { formatEmailDate, formatLeaveTypeLabel } from '@/lib/email/format';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
+import { leaveRequestUserEmbed } from '@/lib/leave/queries';
 import { formatDateRange } from '@/lib/utils';
 
 function statusBadgeVariant(status: string) {
@@ -41,7 +42,9 @@ export default async function ProjectRequestDetailsPage({
 
   const { data: request } = await supabase
     .from('leave_requests')
-    .select('id, user_id, type, status, start_date, end_date, reason, decision_note, created_at, working_days_count, users(name, email)')
+    .select(
+      `id, user_id, type, status, start_date, end_date, reason, decision_note, created_at, working_days_count, ${leaveRequestUserEmbed}(name, email)`
+    )
     .eq('id', params.requestId)
     .eq('project_id', project.id)
     .maybeSingle();
