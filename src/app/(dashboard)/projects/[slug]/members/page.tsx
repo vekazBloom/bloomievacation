@@ -4,10 +4,9 @@ import { ArrowLeft } from 'lucide-react';
 import { AddExistingMemberForm } from '@/components/projects/add-existing-member-form';
 import { InviteMemberForm } from '@/components/projects/invite-member-form';
 import { MemberManagerRow } from '@/components/projects/member-manager-row';
-import { Badge } from '@/components/ui/badge';
+import { PendingInvitationsTable } from '@/components/projects/pending-invitations-table';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { formatEmailDate, formatRoleLabel } from '@/lib/email/format';
 import {
   closePendingInvitationsForEmail,
   reconcileAcceptedInvitationMemberships,
@@ -48,7 +47,7 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
 
   const { data: invitations } = await supabase
     .from('invitations')
-    .select('email, role, expires_at, accepted_at, created_at')
+    .select('id, email, role, expires_at, accepted_at, created_at')
     .eq('project_id', projectId)
     .is('accepted_at', null)
     .order('created_at', { ascending: false });
@@ -83,33 +82,15 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
         </CardContent>
       </Card>
 
-      <Card>
-        <div className="border-b border-border px-6 py-4">
-          <h2 className="font-display text-lg">Pending invitations</h2>
-        </div>
-        <CardContent className="divide-y divide-border p-0">
-          {(invitations || []).length === 0 ? (
-            <p className="px-6 py-8 text-sm text-muted-foreground">No pending invitations.</p>
-          ) : (
-            invitations?.map((invite) => (
-              <div
-                key={`${invite.email}-${invite.created_at}`}
-                className="flex items-center justify-between px-6 py-4"
-              >
-                <div>
-                  <p className="font-medium">{invite.email}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Expires {formatEmailDate(invite.expires_at)}
-                  </p>
-                </div>
-                <Badge variant="outline" className="font-mono uppercase">
-                  {formatRoleLabel(invite.role)}
-                </Badge>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+      <PendingInvitationsTable
+        invitations={(invitations || []).map((invite) => ({
+          id: invite.id,
+          email: invite.email,
+          role: invite.role,
+          expires_at: invite.expires_at,
+          created_at: invite.created_at,
+        }))}
+      />
     </div>
   );
 }
