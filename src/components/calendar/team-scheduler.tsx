@@ -291,56 +291,64 @@ export function TeamScheduler({
           </span>
         </div>
 
-        <div className="grid grid-cols-7 border-b border-border text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label) => (
-            <div key={label} className="px-2 py-2">
-              {label}
-            </div>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-7">
-          {monthDays.map((day) => {
-            const dayEvents = eventsByDay.get(format(day, 'yyyy-MM-dd')) || [];
-            const isOutside = !isSameMonth(day, month);
-            const isSelected =
-              rangeAnchor && rangeEnd ? isDayInRange(day, rangeAnchor, rangeEnd) : selectedDay ? isSameDay(day, selectedDay) : false;
-
-            return (
-              <div
-                key={day.toISOString()}
-                role="button"
-                tabIndex={0}
-                onClick={(event) => openDayModal(day, event.shiftKey)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    openDayModal(day, event.shiftKey);
-                  }
-                }}
-                className={`min-h-28 cursor-pointer border-b border-r border-border p-2 text-left transition-colors ${
-                  isOutside ? 'bg-muted/20 text-muted-foreground' : 'bg-card'
-                } ${isSelected ? 'ring-2 ring-inset ring-primary/40' : ''}`}
-              >
-                <span className="text-sm font-medium">{format(day, 'd')}</span>
-                <div className="mt-2 space-y-1">
-                  {dayEvents.slice(0, 3).map((event) => (
-                    <EventChip
-                      key={`${event.id}-${day.toISOString()}`}
-                      event={event}
-                      onSelect={() => {
-                        setSelectedEventId(event.id);
-                        setSelectedDay(day);
-                      }}
-                    />
-                  ))}
-                  {dayEvents.length > 3 ? (
-                    <p className="text-[11px] text-muted-foreground">+ {dayEvents.length - 3} more</p>
-                  ) : null}
+        <div className="overflow-x-auto pb-1">
+          <div className="min-w-[840px]">
+            <div className="grid grid-cols-7 border-b border-border text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label) => (
+                <div key={label} className="px-2 py-2">
+                  {label}
                 </div>
-              </div>
-            );
-          })}
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7">
+              {monthDays.map((day) => {
+                const dayEvents = eventsByDay.get(format(day, 'yyyy-MM-dd')) || [];
+                const isOutside = !isSameMonth(day, month);
+                const isSelected =
+                  rangeAnchor && rangeEnd
+                    ? isDayInRange(day, rangeAnchor, rangeEnd)
+                    : selectedDay
+                      ? isSameDay(day, selectedDay)
+                      : false;
+
+                return (
+                  <div
+                    key={day.toISOString()}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => openDayModal(day, event.shiftKey)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openDayModal(day, event.shiftKey);
+                      }
+                    }}
+                    className={`min-h-28 cursor-pointer border-b border-r border-border p-2 text-left transition-colors ${
+                      isOutside ? 'bg-muted/20 text-muted-foreground' : 'bg-card'
+                    } ${isSelected ? 'ring-2 ring-inset ring-primary/40' : ''}`}
+                  >
+                    <span className="text-sm font-medium">{format(day, 'd')}</span>
+                    <div className="mt-2 space-y-1">
+                      {dayEvents.slice(0, 3).map((event) => (
+                        <EventChip
+                          key={`${event.id}-${day.toISOString()}`}
+                          event={event}
+                          onSelect={() => {
+                            setSelectedEventId(event.id);
+                            setSelectedDay(day);
+                          }}
+                        />
+                      ))}
+                      {dayEvents.length > 3 ? (
+                        <p className="text-[11px] text-muted-foreground">+ {dayEvents.length - 3} more</p>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -401,24 +409,26 @@ export function TeamScheduler({
                 {format(weekDays[0], 'MMM d')} – {format(weekDays[6], 'MMM d')}
               </span>
             </div>
-            <div className="grid grid-cols-7 gap-2">
-              {weekDays.map((day) => {
-                const dayEvents = filteredEvents.filter((event) => eventMatchesDay(event, day));
-                return (
-                  <div key={`week-${day.toISOString()}`} className="min-h-48 rounded-lg border border-border bg-muted/10 p-2">
-                    <p className="mb-2 text-xs font-medium text-muted-foreground">{format(day, 'EEE d')}</p>
-                    <div className="space-y-2">
-                      {dayEvents.map((event) => (
-                        <EventChip
-                          key={`${event.id}-week-${day.toISOString()}`}
-                          event={event}
-                          onSelect={() => setSelectedEventId(event.id)}
-                        />
-                      ))}
+            <div className="overflow-x-auto pb-1">
+              <div className="grid min-w-[840px] grid-cols-7 gap-2">
+                {weekDays.map((day) => {
+                  const dayEvents = filteredEvents.filter((event) => eventMatchesDay(event, day));
+                  return (
+                    <div key={`week-${day.toISOString()}`} className="min-h-48 rounded-lg border border-border bg-muted/10 p-2">
+                      <p className="mb-2 text-xs font-medium text-muted-foreground">{format(day, 'EEE d')}</p>
+                      <div className="space-y-2">
+                        {dayEvents.map((event) => (
+                          <EventChip
+                            key={`${event.id}-week-${day.toISOString()}`}
+                            event={event}
+                            onSelect={() => setSelectedEventId(event.id)}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
 

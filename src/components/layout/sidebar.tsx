@@ -9,6 +9,7 @@ import {
   FolderKanban,
   Settings,
   ShieldCheck,
+  UserX,
   Plus,
 } from 'lucide-react';
 import { RemoteImage } from '@/components/ui/remote-image';
@@ -47,6 +48,7 @@ export function Sidebar({
 
   const adminItems = [
     { href: '/admin/holidays', label: 'Holidays', icon: ShieldCheck },
+    { href: '/admin/users-without-projects', label: 'Users without projects', icon: UserX },
   ];
 
   return (
