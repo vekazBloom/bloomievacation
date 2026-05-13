@@ -4,7 +4,8 @@ export type RequestRejectedEmailProps = {
   employeeName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   reason?: string;
   requestUrl: string;
 };
@@ -13,7 +14,8 @@ export function RequestRejectedEmail({
   employeeName,
   projectName,
   leaveType,
-  dateRange,
+  startDate,
+  endDate,
   reason,
   requestUrl,
 }: RequestRejectedEmailProps) {
@@ -38,7 +40,8 @@ export function RequestRejectedEmail({
         rows={[
           { label: 'Project', value: projectName },
           { label: 'Leave type', value: leaveType },
-          { label: 'Dates', value: dateRange },
+          { label: 'From', value: startDate },
+          { label: 'To', value: endDate },
         ]}
       />
     </EmailLayout>

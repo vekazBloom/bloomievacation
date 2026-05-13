@@ -5,7 +5,8 @@ export type RequestSubmittedEmailProps = {
   employeeName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   requestUrl: string;
 };
 
@@ -14,7 +15,8 @@ export function RequestSubmittedEmail({
   employeeName,
   projectName,
   leaveType,
-  dateRange,
+  startDate,
+  endDate,
   requestUrl,
 }: RequestSubmittedEmailProps) {
   return (
@@ -33,7 +35,8 @@ export function RequestSubmittedEmail({
           { label: 'Employee', value: employeeName },
           { label: 'Project', value: projectName },
           { label: 'Leave type', value: leaveType },
-          { label: 'Dates', value: dateRange },
+          { label: 'From', value: startDate },
+          { label: 'To', value: endDate },
         ]}
       />
     </EmailLayout>

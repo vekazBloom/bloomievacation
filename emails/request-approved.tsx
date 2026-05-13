@@ -4,7 +4,8 @@ export type RequestApprovedEmailProps = {
   employeeName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   requestUrl: string;
 };
 
@@ -12,7 +13,8 @@ export function RequestApprovedEmail({
   employeeName,
   projectName,
   leaveType,
-  dateRange,
+  startDate,
+  endDate,
   requestUrl,
 }: RequestApprovedEmailProps) {
   return (
@@ -28,7 +30,8 @@ export function RequestApprovedEmail({
         rows={[
           { label: 'Project', value: projectName },
           { label: 'Leave type', value: leaveType },
-          { label: 'Dates', value: dateRange },
+          { label: 'From', value: startDate },
+          { label: 'To', value: endDate },
         ]}
       />
     </EmailLayout>

@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 
-const WORDMARK_ASPECT_RATIO = 1024 / 682;
+const WORDMARK_ASPECT_RATIO = 666 / 375;
 
 export function BloomLogo({
   className,

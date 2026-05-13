@@ -60,7 +60,8 @@ export async function sendRequestSubmittedEmail(params: {
   employeeName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   requestId: string;
   projectSlug: string;
 }) {
@@ -72,7 +73,8 @@ export async function sendRequestSubmittedEmail(params: {
       employeeName: params.employeeName,
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
-      dateRange: params.dateRange,
+      startDate: formatEmailDate(params.startDate),
+      endDate: formatEmailDate(params.endDate),
       requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
@@ -83,7 +85,8 @@ export async function sendRequestApprovedEmail(params: {
   employeeName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   requestId: string;
   projectSlug: string;
 }) {
@@ -94,7 +97,8 @@ export async function sendRequestApprovedEmail(params: {
       employeeName: params.employeeName,
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
-      dateRange: params.dateRange,
+      startDate: formatEmailDate(params.startDate),
+      endDate: formatEmailDate(params.endDate),
       requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
@@ -105,7 +109,8 @@ export async function sendRequestRejectedEmail(params: {
   employeeName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   reason?: string;
   requestId: string;
   projectSlug: string;
@@ -117,7 +122,8 @@ export async function sendRequestRejectedEmail(params: {
       employeeName: params.employeeName,
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
-      dateRange: params.dateRange,
+      startDate: formatEmailDate(params.startDate),
+      endDate: formatEmailDate(params.endDate),
       reason: params.reason,
       requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
@@ -130,7 +136,8 @@ export async function sendRequestEditedEmail(params: {
   editorName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   requestId: string;
   projectSlug: string;
 }) {
@@ -142,7 +149,8 @@ export async function sendRequestEditedEmail(params: {
       editorName: params.editorName,
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
-      dateRange: params.dateRange,
+      startDate: formatEmailDate(params.startDate),
+      endDate: formatEmailDate(params.endDate),
       requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
@@ -221,7 +229,8 @@ export async function sendNotificationEmail(
         employeeName: String(params.employeeName),
         projectName: String(params.projectName),
         leaveType: String(params.leaveType),
-        dateRange: String(params.dateRange),
+        startDate: String(params.startDate),
+        endDate: String(params.endDate),
         requestId: String(params.requestId),
         projectSlug: String(params.projectSlug),
       });
@@ -231,7 +240,8 @@ export async function sendNotificationEmail(
         employeeName: String(params.employeeName),
         projectName: String(params.projectName),
         leaveType: String(params.leaveType),
-        dateRange: String(params.dateRange),
+        startDate: String(params.startDate),
+        endDate: String(params.endDate),
         requestId: String(params.requestId),
         projectSlug: String(params.projectSlug),
       });
@@ -241,7 +251,8 @@ export async function sendNotificationEmail(
         employeeName: String(params.employeeName),
         projectName: String(params.projectName),
         leaveType: String(params.leaveType),
-        dateRange: String(params.dateRange),
+        startDate: String(params.startDate),
+        endDate: String(params.endDate),
         reason: params.reason ? String(params.reason) : undefined,
         requestId: String(params.requestId),
         projectSlug: String(params.projectSlug),
@@ -253,7 +264,8 @@ export async function sendNotificationEmail(
         editorName: String(params.editorName),
         projectName: String(params.projectName),
         leaveType: String(params.leaveType),
-        dateRange: String(params.dateRange),
+        startDate: String(params.startDate),
+        endDate: String(params.endDate),
         requestId: String(params.requestId),
         projectSlug: String(params.projectSlug),
       });

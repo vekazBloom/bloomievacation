@@ -5,7 +5,8 @@ export type RequestEditedEmailProps = {
   editorName: string;
   projectName: string;
   leaveType: string;
-  dateRange: string;
+  startDate: string;
+  endDate: string;
   requestUrl: string;
 };
 
@@ -14,7 +15,8 @@ export function RequestEditedEmail({
   editorName,
   projectName,
   leaveType,
-  dateRange,
+  startDate,
+  endDate,
   requestUrl,
 }: RequestEditedEmailProps) {
   return (
@@ -30,7 +32,8 @@ export function RequestEditedEmail({
         rows={[
           { label: 'Project', value: projectName },
           { label: 'Leave type', value: leaveType },
-          { label: 'Updated dates', value: dateRange },
+          { label: 'From', value: startDate },
+          { label: 'To', value: endDate },
           { label: 'Updated by', value: editorName },
         ]}
       />
