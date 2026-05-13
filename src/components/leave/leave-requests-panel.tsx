@@ -24,6 +24,7 @@ export function LeaveRequestsPanel({
   const router = useRouter();
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [decisionNote, setDecisionNote] = useState('');
+  const [decisionAction, setDecisionAction] = useState<'reject' | 'approve'>('reject');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editStartDate, setEditStartDate] = useState('');
   const [editEndDate, setEditEndDate] = useState('');
@@ -90,6 +91,7 @@ export function LeaveRequestsPanel({
                 : null;
             const isEditing = editingId === request.id;
             const isRejecting = rejectingId === request.id;
+            const canEditDecision = canReview && (request.status === 'approved' || request.status === 'rejected');
 
             return (
               <div key={request.id} className="space-y-3 px-6 py-4">
@@ -145,6 +147,19 @@ export function LeaveRequestsPanel({
                         </Button>
                       </>
                     ) : null}
+                    {canEditDecision && !isRejecting ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setRejectingId(request.id);
+                          setDecisionAction(request.status === 'approved' ? 'approve' : 'reject');
+                          setDecisionNote(request.decision_note || '');
+                        }}
+                      >
+                        Edit decision
+                      </Button>
+                    ) : null}
                     {canEdit && !isEditing ? (
                       <Button size="sm" variant="outline" onClick={() => startEditing(request)}>
                         Edit
@@ -165,14 +180,27 @@ export function LeaveRequestsPanel({
                 {isRejecting ? (
                   <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
                     <label className="text-sm font-medium" htmlFor={`reject-note-${request.id}`}>
-                      Rejection note
+                      Decision
+                    </label>
+                    <select
+                      value={decisionAction}
+                      onChange={(event) =>
+                        setDecisionAction(event.target.value as 'reject' | 'approve')
+                      }
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    >
+                      <option value="approve">Approve</option>
+                      <option value="reject">Reject</option>
+                    </select>
+                    <label className="text-sm font-medium" htmlFor={`decision-note-${request.id}`}>
+                      Decision note
                     </label>
                     <textarea
-                      id={`reject-note-${request.id}`}
+                      id={`decision-note-${request.id}`}
                       value={decisionNote}
                       onChange={(event) => setDecisionNote(event.target.value)}
                       className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      placeholder="Optional reason for the employee"
+                      placeholder="Optional note for the employee"
                     />
                     <div className="flex gap-2">
                       <Button
@@ -181,12 +209,12 @@ export function LeaveRequestsPanel({
                         onClick={() =>
                           updateRequest(
                             request.id,
-                            { action: 'reject', decisionNote: decisionNote.trim() || null },
-                            'Request rejected'
+                            { action: decisionAction, decisionNote: decisionNote.trim() || null },
+                            decisionAction === 'approve' ? 'Request approved' : 'Request rejected'
                           )
                         }
                       >
-                        Confirm reject
+                        Save decision
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setRejectingId(null)}>
                         Cancel

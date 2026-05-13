@@ -48,7 +48,7 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
     memberUserIds.length > 0
       ? await supabase
           .from('project_members')
-          .select('user_id, projects(name, slug)')
+          .select('user_id, projects(name, slug, is_archived)')
           .in('user_id', memberUserIds)
           .neq('project_id', projectId)
       : { data: [] };
@@ -59,7 +59,7 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
       const project = Array.isArray(membership.projects)
         ? membership.projects[0]
         : membership.projects;
-      if (!userId || !project?.slug || !project?.name) return acc;
+      if (!userId || !project?.slug || !project?.name || project?.is_archived) return acc;
       const existing = acc.get(userId) || [];
       if (!existing.some((item) => item.slug === project.slug)) {
         existing.push({ slug: project.slug, name: project.name });

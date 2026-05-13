@@ -14,8 +14,13 @@ export default async function ProfilePage() {
 
   const { data: memberships } = await supabase
     .from('project_members')
-    .select('role, projects(id, name, logo_url)')
+    .select('role, projects(id, name, logo_url, is_archived)')
     .eq('user_id', user.id);
+
+  const activeMemberships = (memberships || []).filter((membership: any) => {
+    const project = Array.isArray(membership.projects) ? membership.projects[0] : membership.projects;
+    return Boolean(project?.id && !project?.is_archived);
+  });
 
   const year = new Date().getFullYear();
   const { data: religiousHolidays } = await supabase
@@ -79,35 +84,38 @@ export default async function ProfilePage() {
           <p className="text-sm text-muted-foreground">Where you currently have access.</p>
         </div>
         <CardContent className="p-0">
-          {(memberships || []).length === 0 ? (
+          {activeMemberships.length === 0 ? (
             <p className="px-6 py-8 text-center text-sm text-muted-foreground">
               You haven&apos;t joined any project yet.
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {(memberships || []).map((m: any) => (
-                <li key={m.projects.id} className="flex items-center justify-between gap-3 px-6 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {m.projects.logo_url ? (
-                      <RemoteImage
-                        src={m.projects.logo_url}
-                        alt=""
-                        width={32}
-                        height={32}
-                        className="h-8 w-8 shrink-0 rounded-md object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-sm font-medium text-primary">
-                        {m.projects.name[0]?.toUpperCase()}
-                      </div>
-                    )}
-                    <span className="truncate text-sm font-medium">{m.projects.name}</span>
-                  </div>
-                  <Badge variant="outline" className="font-mono uppercase">
-                    {m.role}
-                  </Badge>
-                </li>
-              ))}
+              {activeMemberships.map((m: any) => {
+                const project = Array.isArray(m.projects) ? m.projects[0] : m.projects;
+                return (
+                  <li key={project.id} className="flex items-center justify-between gap-3 px-6 py-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {project.logo_url ? (
+                        <RemoteImage
+                          src={project.logo_url}
+                          alt=""
+                          width={32}
+                          height={32}
+                          className="h-8 w-8 shrink-0 rounded-md object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-sm font-medium text-primary">
+                          {project.name[0]?.toUpperCase()}
+                        </div>
+                      )}
+                      <span className="truncate text-sm font-medium">{project.name}</span>
+                    </div>
+                    <Badge variant="outline" className="font-mono uppercase">
+                      {m.role}
+                    </Badge>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
