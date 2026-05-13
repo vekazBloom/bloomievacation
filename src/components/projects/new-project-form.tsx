@@ -67,32 +67,52 @@ export function NewProjectForm() {
     }
 
     // 1. Create project row.
+    const insertPayload = {
+      name: values.name,
+      description: values.description || null,
+      vacation_threshold_percent: values.vacation_threshold_percent,
+      year_reset_month: values.year_reset_month,
+      year_reset_day: values.year_reset_day,
+      carry_over_policy: values.carry_over_policy,
+      created_by: user.id,
+    };
+
     const { data: project, error: projectErr } = await supabase
       .from('projects')
-      .insert({
-        name: values.name,
-        description: values.description || null,
-        vacation_threshold_percent: values.vacation_threshold_percent,
-        year_reset_month: values.year_reset_month,
-        year_reset_day: values.year_reset_day,
-        carry_over_policy: values.carry_over_policy,
-        created_by: user.id,
-      })
+      .insert(insertPayload)
       .select('id, slug')
       .single();
 
-    if (projectErr || !project) {
+    let projectId = project?.id ?? null;
+    let projectSlug = project?.slug ?? null;
+
+    if (projectErr?.code === '42703' && projectErr.message.includes('projects.slug')) {
+      const { data: fallbackProject, error: fallbackErr } = await supabase
+        .from('projects')
+        .insert(insertPayload)
+        .select('id')
+        .single();
+
+      if (fallbackErr || !fallbackProject) {
+        toast.error(fallbackErr?.message || 'Failed to create project');
+        setIsLoading(false);
+        return;
+      }
+
+      projectId = fallbackProject.id;
+      projectSlug = null;
+      toast.warning('Project created, but DB slug migration is missing. Run migration 005_project_slugs.sql.');
+    } else if (projectErr || !projectId) {
       toast.error(projectErr?.message || 'Failed to create project');
       setIsLoading(false);
       return;
     }
 
-    const projectSlug = (project as { id: string; slug: string }).slug;
     // 2. Upload logo if provided.
     let logoUrl: string | null = null;
     if (logoFile) {
       const ext = logoFile.name.split('.').pop();
-      const path = `${project.id}/logo.${ext}`;
+      const path = `${projectId}/logo.${ext}`;
       const { error: uploadErr } = await supabase.storage
         .from('project-logos')
         .upload(path, logoFile, { upsert: true });
@@ -100,7 +120,7 @@ export function NewProjectForm() {
       if (!uploadErr) {
         const { data: pub } = supabase.storage.from('project-logos').getPublicUrl(path);
         logoUrl = pub.publicUrl;
-        await supabase.from('projects').update({ logo_url: logoUrl }).eq('id', project.id);
+        await supabase.from('projects').update({ logo_url: logoUrl }).eq('id', projectId);
       } else {
         console.error('Logo upload failed:', uploadErr);
       }
@@ -108,7 +128,7 @@ export function NewProjectForm() {
 
     // 3. Add creator as project admin.
     const { error: memberErr } = await supabase.from('project_members').insert({
-      project_id: project.id,
+      project_id: projectId,
       user_id: user.id,
       role: 'admin',
     });
@@ -116,7 +136,7 @@ export function NewProjectForm() {
 
     setIsLoading(false);
     toast.success(`Project "${values.name}" created`);
-    router.push(projectPath(projectSlug));
+    router.push(projectSlug ? projectPath(projectSlug) : '/projects');
     router.refresh();
   }
 
