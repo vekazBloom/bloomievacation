@@ -75,10 +75,12 @@ function EventChip({
   event: SchedulerEvent;
   onSelect: () => void;
 }) {
+  const tooltip = [event.title, event.subtitle].filter(Boolean).join(' — ');
   return (
     <div
       role="button"
       tabIndex={0}
+      title={tooltip}
       onClick={(clickEvent) => {
         clickEvent.stopPropagation();
         onSelect();
@@ -90,7 +92,7 @@ function EventChip({
           onSelect();
         }
       }}
-      className={`flex w-full items-center gap-1.5 truncate rounded border px-1.5 py-0.5 text-left text-[11px] ${leaveChipClasses(
+      className={`flex w-full min-w-0 items-center gap-1.5 truncate rounded border px-1.5 py-0.5 text-left text-[11px] ${leaveChipClasses(
         event.status,
         event.type
       )}`}
@@ -352,19 +354,24 @@ export function TeamScheduler({
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <div className="space-y-4 rounded-xl border border-border bg-card p-4">
-          <DayPicker
-            mode="single"
-            selected={selectedDay}
-            onSelect={(day) => {
-              if (!day) return;
-              openDayModal(day, false);
-            }}
-            month={month}
-            onMonthChange={setMonth}
-            className="mx-auto"
-          />
+      <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4 rounded-xl border border-border bg-card p-4">
+          <div className="w-full min-w-0 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+            <div className="mx-auto w-fit min-w-0 [--rdp-cell-size:2.25rem] [&_.rdp]:m-0 [&_.rdp]:max-w-full">
+              <DayPicker
+                mode="single"
+                selected={selectedDay}
+                onSelect={(day) => {
+                  if (!day) return;
+                  openDayModal(day, false);
+                }}
+                month={month}
+                onMonthChange={setMonth}
+                showOutsideDays
+                className="text-sm"
+              />
+            </div>
+          </div>
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -401,7 +408,7 @@ export function TeamScheduler({
           ) : null}
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="rounded-xl border border-border bg-card p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-display text-lg">Week schedule</h3>
@@ -414,7 +421,10 @@ export function TeamScheduler({
                 {weekDays.map((day) => {
                   const dayEvents = filteredEvents.filter((event) => eventMatchesDay(event, day));
                   return (
-                    <div key={`week-${day.toISOString()}`} className="min-h-48 rounded-lg border border-border bg-muted/10 p-2">
+                    <div
+                      key={`week-${day.toISOString()}`}
+                      className="min-h-48 min-w-0 rounded-lg border border-border bg-muted/10 p-2"
+                    >
                       <p className="mb-2 text-xs font-medium text-muted-foreground">{format(day, 'EEE d')}</p>
                       <div className="space-y-2">
                         {dayEvents.map((event) => (
@@ -438,7 +448,9 @@ export function TeamScheduler({
             </h3>
             <div className="mt-3 space-y-3">
               {selectedDayEvents.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No events for this day.</p>
+                <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+                  <p className="text-sm text-muted-foreground">No events for this day.</p>
+                </div>
               ) : (
                 selectedDayEvents.map((event) => (
                   <button
