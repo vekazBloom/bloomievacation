@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { TeamSchedulerLazy as TeamScheduler } from '@/components/calendar/team-scheduler-lazy';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getDashboardSession } from '@/lib/auth/dashboard';
-import { getUserLeaveBalance } from '@/lib/leave/global-balance';
+import { mapLeaveRequestToEvent } from '@/lib/calendar/map-events';
+import { leaveRequestUserEmbed } from '@/lib/leave/queries';
 
 export default async function UsersWithoutProjectsPage() {
   const session = await getDashboardSession();
@@ -27,10 +29,23 @@ export default async function UsersWithoutProjectsPage() {
     orphanUserIds.length > 0
       ? await supabase
           .from('leave_requests')
-          .select('user_id')
+          .select('id, user_id, status')
           .in('user_id', orphanUserIds)
           .in('status', ['pending', 'approved'])
           .gte('end_date', today)
+      : { data: [] };
+
+  const { data: upcomingRequests } =
+    orphanUserIds.length > 0
+      ? await supabase
+          .from('leave_requests')
+          .select(
+            `id, user_id, type, status, start_date, end_date, projects(name), ${leaveRequestUserEmbed}(name, avatar_url)`
+          )
+          .in('user_id', orphanUserIds)
+          .in('status', ['pending', 'approved'])
+          .gte('end_date', today)
+          .order('start_date', { ascending: true })
       : { data: [] };
 
   const activeCountByUser = (activeRequests || []).reduce(
@@ -41,11 +56,40 @@ export default async function UsersWithoutProjectsPage() {
     new Map<string, number>()
   );
 
-  const balancesByUser = new Map<string, Awaited<ReturnType<typeof getUserLeaveBalance>>['data']>();
-  for (const orphan of orphans) {
-    const { data } = await getUserLeaveBalance(supabase, orphan.id);
-    balancesByUser.set(orphan.id, data);
-  }
+  const pendingCountByUser = (activeRequests || []).reduce(
+    (acc, request) => {
+      if (request.status === 'pending') {
+        acc.set(request.user_id, (acc.get(request.user_id) || 0) + 1);
+      }
+      return acc;
+    },
+    new Map<string, number>()
+  );
+
+  const approvedCountByUser = (activeRequests || []).reduce(
+    (acc, request) => {
+      if (request.status === 'approved') {
+        acc.set(request.user_id, (acc.get(request.user_id) || 0) + 1);
+      }
+      return acc;
+    },
+    new Map<string, number>()
+  );
+
+  const { data: balances } =
+    orphanUserIds.length > 0
+      ? await supabase
+          .from('user_leave_balances')
+          .select(
+            'user_id, annual_leave_total, annual_leave_used, annual_leave_carried_over, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used'
+          )
+          .in('user_id', orphanUserIds)
+      : { data: [] };
+
+  const balancesByUser = new Map((balances || []).map((balance) => [balance.user_id, balance]));
+
+  const schedulerMembers = orphans.map((user) => ({ id: user.id, name: user.name }));
+  const schedulerEvents = (upcomingRequests || []).map((request) => mapLeaveRequestToEvent(request));
 
   return (
     <div className="mx-auto max-w-5xl space-y-8 animate-fade-in">
@@ -85,6 +129,12 @@ export default async function UsersWithoutProjectsPage() {
                       {(activeCountByUser.get(user.id) || 0) > 0 ? (
                         <Badge variant="warning">{activeCountByUser.get(user.id)} active request(s)</Badge>
                       ) : null}
+                      {(pendingCountByUser.get(user.id) || 0) > 0 ? (
+                        <Badge variant="pending">{pendingCountByUser.get(user.id)} pending</Badge>
+                      ) : null}
+                      {(approvedCountByUser.get(user.id) || 0) > 0 ? (
+                        <Badge variant="success">{approvedCountByUser.get(user.id)} approved upcoming</Badge>
+                      ) : null}
                     </div>
                   </div>
                   <Button asChild variant="outline" size="sm">
@@ -93,6 +143,22 @@ export default async function UsersWithoutProjectsPage() {
                 </div>
               );
             })
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="font-display text-lg">Leave calendar (users without projects)</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Track pending and approved upcoming leave for unassigned users in one place.
+          </p>
+        </div>
+        <CardContent className="p-6">
+          {schedulerEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No upcoming leave events for unassigned users.</p>
+          ) : (
+            <TeamScheduler events={schedulerEvents} members={schedulerMembers} showMemberFilters />
           )}
         </CardContent>
       </Card>
