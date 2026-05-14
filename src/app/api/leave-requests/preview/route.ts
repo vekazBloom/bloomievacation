@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchAnnualGrantSplitHints } from '@/lib/leave/entitlement-grants';
 import { getCurrentUser } from '@/lib/projects/access';
 
 export async function GET(request: NextRequest) {
@@ -9,6 +10,7 @@ export async function GET(request: NextRequest) {
   const startDate = request.nextUrl.searchParams.get('startDate');
   const endDate = request.nextUrl.searchParams.get('endDate');
   const excludeRequestId = request.nextUrl.searchParams.get('excludeRequestId');
+  const leaveType = request.nextUrl.searchParams.get('leaveType');
 
   if (!projectId || !startDate || !endDate) {
     return NextResponse.json({ error: 'Missing query params' }, { status: 400 });
@@ -44,6 +46,11 @@ export async function GET(request: NextRequest) {
   const overlapPercent =
     totalMembers > 0 ? Math.round((overlappingMembers / totalMembers) * 100) : 0;
 
+  let annualGrants: Awaited<ReturnType<typeof fetchAnnualGrantSplitHints>> | null = null;
+  if (leaveType === 'annual' && startDate) {
+    annualGrants = await fetchAnnualGrantSplitHints(supabase, projectId, user.id, startDate);
+  }
+
   return NextResponse.json({
     workingDays,
     overlap: {
@@ -53,5 +60,6 @@ export async function GET(request: NextRequest) {
       overlapPercent,
       exceedsThreshold: overlapPercent >= thresholdPercent,
     },
+    annualGrants,
   });
 }

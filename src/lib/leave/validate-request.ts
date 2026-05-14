@@ -1,3 +1,8 @@
+import {
+  fetchGrantsForMember,
+  validateAnnualAllocationsAgainstGrants,
+  type AnnualAllocationInput,
+} from '@/lib/leave/entitlement-grants';
 import { validateLeaveBalance } from '@/lib/leave/balance';
 import { getUserLeaveBalance } from '@/lib/leave/global-balance';
 import type { LeaveType } from '@/types/database';
@@ -13,6 +18,7 @@ export async function assertLeaveBalance(
     type: LeaveType;
     workingDays: number;
     excludeRequestId?: string;
+    annualAllocations?: AnnualAllocationInput[];
   }
 ) {
   const { data: globalBalance, error: globalBalanceError } = await getUserLeaveBalance(
@@ -56,6 +62,42 @@ export async function assertLeaveBalance(
       status: 404,
       error: useProjectScopedFallback ? 'Project membership not found' : 'User leave balance not found',
     };
+  }
+
+  if (params.type === 'annual') {
+    const grants = await fetchGrantsForMember(supabase, params.projectId, params.userId);
+    if (grants.length > 0) {
+      let allocations = params.annualAllocations;
+      if ((!allocations || allocations.length === 0) && params.excludeRequestId) {
+        const { data: allocRows } = await supabase
+          .from('leave_request_grant_allocations')
+          .select('grant_id, working_days')
+          .eq('leave_request_id', params.excludeRequestId);
+        allocations = (allocRows || []).map((r) => ({
+          grantId: r.grant_id as string,
+          workingDays: Number(r.working_days || 0),
+        }));
+      }
+      if (!allocations || allocations.length === 0) {
+        return {
+          ok: false as const,
+          status: 400,
+          error:
+            'Annual leave requires entitlement allocations. Submit how many days to take from each annual fund.',
+        };
+      }
+      const grantCheck = await validateAnnualAllocationsAgainstGrants(supabase, {
+        projectId: params.projectId,
+        userId: params.userId,
+        workingDays: params.workingDays,
+        allocations,
+        excludeLeaveRequestId: params.excludeRequestId,
+      });
+      if (!grantCheck.ok) {
+        return grantCheck;
+      }
+      return { ok: true as const, membership: balanceSource };
+    }
   }
 
   let pendingQuery = supabase

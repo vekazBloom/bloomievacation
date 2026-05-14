@@ -20,6 +20,8 @@ const schema = z.object({
   vacation_threshold_percent: z.coerce.number().int().min(1).max(100),
   year_reset_month: z.coerce.number().int().min(1).max(12),
   year_reset_day: z.coerce.number().int().min(1).max(31),
+  annual_accrual_month: z.coerce.number().int().min(1).max(12),
+  annual_accrual_day: z.coerce.number().int().min(1).max(31),
   carry_over_policy: z.enum(['ask', 'auto_transfer', 'auto_lose']),
 });
 
@@ -42,6 +44,8 @@ export function NewProjectForm() {
       vacation_threshold_percent: 50,
       year_reset_month: 1,
       year_reset_day: 1,
+      annual_accrual_month: 1,
+      annual_accrual_day: 1,
       carry_over_policy: 'ask',
     },
   });
@@ -73,6 +77,8 @@ export function NewProjectForm() {
       vacation_threshold_percent: values.vacation_threshold_percent,
       year_reset_month: values.year_reset_month,
       year_reset_day: values.year_reset_day,
+      annual_accrual_month: values.annual_accrual_month,
+      annual_accrual_day: values.annual_accrual_day,
       carry_over_policy: values.carry_over_policy,
       created_by: user.id,
     };
@@ -230,6 +236,33 @@ export function NewProjectForm() {
               dates, the requester sees a warning.
             </p>
           </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="annual_accrual_month">Annual accrual — month</Label>
+              <Input
+                id="annual_accrual_month"
+                type="number"
+                min={1}
+                max={12}
+                {...register('annual_accrual_month')}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="annual_accrual_day">Annual accrual — day</Label>
+              <Input
+                id="annual_accrual_day"
+                type="number"
+                min={1}
+                max={31}
+                {...register('annual_accrual_day')}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Date when each year&apos;s new annual fund opens (used by the year-reset job). Defaults to 1
+            January; you can change it later in settings (including optional use-by date).
+          </p>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">

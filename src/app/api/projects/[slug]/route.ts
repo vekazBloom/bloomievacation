@@ -3,15 +3,31 @@ import { z } from 'zod';
 import { canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 
-const updateSchema = z.object({
-  name: z.string().min(2).max(80).optional(),
-  description: z.string().max(500).nullable().optional(),
-  vacation_threshold_percent: z.number().int().min(1).max(100).optional(),
-  year_reset_month: z.number().int().min(1).max(12).optional(),
-  year_reset_day: z.number().int().min(1).max(31).optional(),
-  carry_over_policy: z.enum(['ask', 'auto_transfer', 'auto_lose']).optional(),
-  archive: z.boolean().optional(),
-});
+const updateSchema = z
+  .object({
+    name: z.string().min(2).max(80).optional(),
+    description: z.string().max(500).nullable().optional(),
+    vacation_threshold_percent: z.number().int().min(1).max(100).optional(),
+    year_reset_month: z.number().int().min(1).max(12).optional(),
+    year_reset_day: z.number().int().min(1).max(31).optional(),
+    carry_over_policy: z.enum(['ask', 'auto_transfer', 'auto_lose']).optional(),
+    annual_accrual_month: z.number().int().min(1).max(12).optional(),
+    annual_accrual_day: z.number().int().min(1).max(31).optional(),
+    annual_first_use_by_month: z.number().int().min(1).max(12).nullable().optional(),
+    annual_first_use_by_day: z.number().int().min(1).max(31).nullable().optional(),
+    archive: z.boolean().optional(),
+  })
+  .refine(
+    (data) => {
+      const m = data.annual_first_use_by_month;
+      const d = data.annual_first_use_by_day;
+      if (m === undefined && d === undefined) return true;
+      if (m === null && d === null) return true;
+      if (m != null && d != null) return true;
+      return false;
+    },
+    { path: ['annual_first_use_by_month'], message: 'Set both first-use-by month and day, or clear both.' }
+  );
 
 export async function PATCH(
   request: NextRequest,

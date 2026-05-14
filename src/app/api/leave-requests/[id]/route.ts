@@ -6,6 +6,12 @@ import {
 } from '@/lib/leave/notify';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { canReviewLeave, getCurrentUser } from '@/lib/projects/access';
+import {
+  fetchGrantsForMember,
+  grantsEligibleForStartDate,
+  replaceAnnualAllocations,
+  type AnnualAllocationInput,
+} from '@/lib/leave/entitlement-grants';
 import { isValidSickLeaveAttachmentPath } from '@/lib/security/attachment';
 import { createServiceClient } from '@/lib/supabase/server';
 
@@ -16,6 +22,14 @@ const updateSchema = z.object({
   reason: z.string().nullable().optional(),
   attachmentUrl: z.string().nullable().optional(),
   decisionNote: z.string().nullable().optional(),
+  annualAllocations: z
+    .array(
+      z.object({
+        grantId: z.string().uuid(),
+        workingDays: z.number().positive(),
+      })
+    )
+    .optional(),
 });
 
 export async function PATCH(
@@ -43,6 +57,10 @@ export async function PATCH(
     if (!canReview) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const status = parsed.data.action === 'approve' ? 'approved' : 'rejected';
+
+    if (status === 'rejected') {
+      await supabase.from('leave_request_grant_allocations').delete().eq('leave_request_id', params.id);
+    }
 
     if (status === 'approved') {
       const balanceCheck = await assertLeaveBalance(supabase, {
@@ -97,6 +115,8 @@ export async function PATCH(
   if (parsed.data.action === 'cancel') {
     if (!isOwner && !canReview) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+    await supabase.from('leave_request_grant_allocations').delete().eq('leave_request_id', params.id);
+
     const { data, error } = await supabase
       .from('leave_requests')
       .update({ status: 'cancelled' })
@@ -132,12 +152,43 @@ export async function PATCH(
     p_end: endDate,
   });
 
+  const wd = workingDays ?? existing.working_days_count;
+
+  let resolvedAnnualAllocations: AnnualAllocationInput[] | undefined;
+  if (existing.type === 'annual') {
+    const grants = await fetchGrantsForMember(supabase, existing.project_id, existing.user_id);
+    const eligible = grantsEligibleForStartDate(grants, startDate);
+    if (eligible.length === 0 && grants.length > 0) {
+      return NextResponse.json(
+        { error: 'No annual entitlement fund is valid for the start date of this request.' },
+        { status: 400 }
+      );
+    }
+    resolvedAnnualAllocations = parsed.data.annualAllocations;
+    if (eligible.length >= 2) {
+      if (!resolvedAnnualAllocations || resolvedAnnualAllocations.length === 0) {
+        return NextResponse.json(
+          {
+            error:
+              'Multiple annual funds apply. Send annualAllocations totalling working days when editing dates.',
+          },
+          { status: 400 }
+        );
+      }
+    } else if (eligible.length === 1) {
+      if (!resolvedAnnualAllocations || resolvedAnnualAllocations.length === 0) {
+        resolvedAnnualAllocations = [{ grantId: eligible[0].id, workingDays: Number(wd) }];
+      }
+    }
+  }
+
   const balanceCheck = await assertLeaveBalance(supabase, {
     userId: existing.user_id,
     projectId: existing.project_id,
     type: existing.type,
-    workingDays: workingDays ?? existing.working_days_count,
+    workingDays: Number(wd),
     excludeRequestId: params.id,
+    annualAllocations: resolvedAnnualAllocations,
   });
   if (!balanceCheck.ok) {
     return NextResponse.json({ error: balanceCheck.error }, { status: balanceCheck.status });
@@ -150,7 +201,7 @@ export async function PATCH(
       end_date: endDate,
       reason: parsed.data.reason ?? existing.reason,
       attachment_url: parsed.data.attachmentUrl ?? existing.attachment_url,
-      working_days_count: workingDays ?? existing.working_days_count,
+      working_days_count: Number(wd),
       status: 'pending',
       decided_by: null,
       decided_at: null,
@@ -161,6 +212,11 @@ export async function PATCH(
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (existing.type === 'annual' && resolvedAnnualAllocations && resolvedAnnualAllocations.length > 0) {
+    const { error: allocError } = await replaceAnnualAllocations(supabase, params.id, resolvedAnnualAllocations);
+    if (allocError) return NextResponse.json({ error: allocError.message }, { status: 500 });
+  }
 
   await supabase.from('leave_request_history').insert({
     request_id: params.id,

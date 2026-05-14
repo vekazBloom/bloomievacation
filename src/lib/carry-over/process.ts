@@ -3,6 +3,7 @@ import { shouldSendEmail } from '@/lib/email/preferences';
 import { projectPath } from '@/lib/projects/paths';
 import { createInAppNotification } from '@/lib/notifications/in-app';
 import { getAnnualRemaining } from '@/lib/carry-over/remaining';
+import { openAnnualGrantAfterYearReset } from '@/lib/leave/grant-year-reset';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import type { CarryOverPolicy } from '@/types/database';
 
@@ -15,6 +16,10 @@ type ProjectRow = {
   year_reset_month: number | null;
   year_reset_day: number | null;
   carry_over_policy: CarryOverPolicy | null;
+  annual_accrual_month: number | null;
+  annual_accrual_day: number | null;
+  annual_first_use_by_month: number | null;
+  annual_first_use_by_day: number | null;
 };
 
 type MemberRow = {
@@ -81,6 +86,20 @@ export async function runYearResetForProject(
       })
       .eq('project_id', project.id)
       .eq('user_id', member.user_id);
+
+    const baseTotal = Number(member.annual_leave_total ?? 0);
+    const poolForNewGrant = baseTotal + carriedOver;
+
+    await openAnnualGrantAfterYearReset(service, {
+      projectId: project.id,
+      userId: member.user_id,
+      resetYear,
+      accrualMonth: Number(project.annual_accrual_month ?? 1),
+      accrualDay: Number(project.annual_accrual_day ?? 1),
+      firstUseByMonth: project.annual_first_use_by_month,
+      firstUseByDay: project.annual_first_use_by_day,
+      daysAllocatedForNewYear: poolForNewGrant,
+    });
   }
 }
 
@@ -88,7 +107,9 @@ export async function sendCarryOverWarnings(service: ServiceClient, today = new 
   const year = today.getFullYear();
   const { data: projects } = await service
     .from('projects')
-    .select('id, slug, name, year_reset_month, year_reset_day, carry_over_policy')
+    .select(
+      'id, slug, name, year_reset_month, year_reset_day, carry_over_policy, annual_accrual_month, annual_accrual_day, annual_first_use_by_month, annual_first_use_by_day'
+    )
     .eq('is_archived', false);
 
   let warningsSent = 0;
@@ -145,7 +166,9 @@ export async function sendCarryOverWarnings(service: ServiceClient, today = new 
 export async function runYearResetJobs(service: ServiceClient, today = new Date()) {
   const { data: projects } = await service
     .from('projects')
-    .select('id, slug, name, year_reset_month, year_reset_day, carry_over_policy')
+    .select(
+      'id, slug, name, year_reset_month, year_reset_day, carry_over_policy, annual_accrual_month, annual_accrual_day, annual_first_use_by_month, annual_first_use_by_day'
+    )
     .eq('is_archived', false);
 
   let projectsReset = 0;

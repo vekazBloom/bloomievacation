@@ -20,6 +20,14 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
   const [threshold, setThreshold] = useState(String(project.vacation_threshold_percent ?? 50));
   const [resetMonth, setResetMonth] = useState(String(project.year_reset_month ?? 1));
   const [resetDay, setResetDay] = useState(String(project.year_reset_day ?? 1));
+  const [accrualMonth, setAccrualMonth] = useState(String(project.annual_accrual_month ?? 1));
+  const [accrualDay, setAccrualDay] = useState(String(project.annual_accrual_day ?? 1));
+  const [firstUseMonth, setFirstUseMonth] = useState(
+    project.annual_first_use_by_month != null ? String(project.annual_first_use_by_month) : ''
+  );
+  const [firstUseDay, setFirstUseDay] = useState(
+    project.annual_first_use_by_day != null ? String(project.annual_first_use_by_day) : ''
+  );
   const [carryOverPolicy, setCarryOverPolicy] = useState(
     (project.carry_over_policy ?? 'ask') as CarryOverPolicy
   );
@@ -37,6 +45,14 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
         vacation_threshold_percent: Number(threshold),
         year_reset_month: Number(resetMonth),
         year_reset_day: Number(resetDay),
+        annual_accrual_month: Number(accrualMonth),
+        annual_accrual_day: Number(accrualDay),
+        annual_first_use_by_month:
+          firstUseMonth.trim() === '' || firstUseDay.trim() === ''
+            ? null
+            : Number(firstUseMonth),
+        annual_first_use_by_day:
+          firstUseMonth.trim() === '' || firstUseDay.trim() === '' ? null : Number(firstUseDay),
         carry_over_policy: carryOverPolicy,
       }),
     });
@@ -108,6 +124,66 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
             onChange={(event) => setDescription(event.target.value)}
           />
         </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="accrual-month">Annual accrual (new days) — month</Label>
+            <Input
+              id="accrual-month"
+              type="number"
+              min={1}
+              max={12}
+              value={accrualMonth}
+              onChange={(event) => setAccrualMonth(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="accrual-day">Annual accrual — day</Label>
+            <Input
+              id="accrual-day"
+              type="number"
+              min={1}
+              max={31}
+              value={accrualDay}
+              onChange={(event) => setAccrualDay(event.target.value)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Each year on this date a new annual fund opens (after the year-reset job runs). Defaults match
+          January 1 if unchanged.
+        </p>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="first-use-month">First-period use-by (optional) — month</Label>
+            <Input
+              id="first-use-month"
+              type="number"
+              min={1}
+              max={12}
+              placeholder="e.g. 7"
+              value={firstUseMonth}
+              onChange={(event) => setFirstUseMonth(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="first-use-day">First-period use-by — day</Label>
+            <Input
+              id="first-use-day"
+              type="number"
+              min={1}
+              max={31}
+              placeholder="e.g. 1"
+              value={firstUseDay}
+              onChange={(event) => setFirstUseDay(event.target.value)}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Leave both fields empty so new funds never get an automatic expiry date. When you set month and
+          day, each year&apos;s fund expires on that calendar date in the following year.
+        </p>
 
         <div className="grid gap-4 md:grid-cols-3">
           <div className="space-y-2">

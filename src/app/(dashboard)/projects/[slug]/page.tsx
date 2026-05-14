@@ -98,6 +98,9 @@ export default async function ProjectPage({ params }: { params: { slug: string }
               <span>
                 Year reset: {project.year_reset_month}/{project.year_reset_day}
               </span>
+              <span>
+                Annual accrual: {project.annual_accrual_month ?? 1}/{project.annual_accrual_day ?? 1}
+              </span>
               <span>Carry-over: {(project.carry_over_policy ?? 'ask').replace('_', ' ')}</span>
             </div>
           </div>

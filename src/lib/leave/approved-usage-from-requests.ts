@@ -18,6 +18,10 @@ function addToBucket(bucket: ApprovedUsageByType, type: string, days: number) {
  * Sum approved working days per user across all projects.
  * Use this for UI when someone is on multiple teams so "used" matches everywhere
  * (totals still come from project_members for the current project).
+ *
+ * For annual leave with grant splits, each approved request still has a single
+ * `working_days_count`; allocations per grant sum to that value, so this global
+ * sum stays aligned with `project_members.annual_leave_used` / balance triggers.
  */
 export async function fetchApprovedUsageGloballyForUsers(
   supabase: AppSupabase,

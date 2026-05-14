@@ -326,6 +326,102 @@ export type Database = {
           },
         ]
       }
+      annual_entitlement_grants: {
+        Row: {
+          created_at: string
+          days_allocated: number
+          grant_year: number | null
+          id: string
+          label: string
+          project_id: string
+          source: string
+          updated_at: string
+          user_id: string
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          created_at?: string
+          days_allocated: number
+          grant_year?: number | null
+          id?: string
+          label?: string
+          project_id: string
+          source?: string
+          updated_at?: string
+          user_id: string
+          valid_from: string
+          valid_to?: string | null
+        }
+        Update: {
+          created_at?: string
+          days_allocated?: number
+          grant_year?: number | null
+          id?: string
+          label?: string
+          project_id?: string
+          source?: string
+          updated_at?: string
+          user_id?: string
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "annual_entitlement_grants_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "annual_entitlement_grants_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leave_request_grant_allocations: {
+        Row: {
+          created_at: string
+          grant_id: string
+          id: string
+          leave_request_id: string
+          working_days: number
+        }
+        Insert: {
+          created_at?: string
+          grant_id: string
+          id?: string
+          leave_request_id: string
+          working_days: number
+        }
+        Update: {
+          created_at?: string
+          grant_id?: string
+          id?: string
+          leave_request_id?: string
+          working_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_request_grant_allocations_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "annual_entitlement_grants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_request_grant_allocations_leave_request_id_fkey"
+            columns: ["leave_request_id"]
+            isOneToOne: false
+            referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_members: {
         Row: {
           annual_leave_carried_over: number | null
@@ -388,6 +484,10 @@ export type Database = {
       }
       projects: {
         Row: {
+          annual_accrual_day: number
+          annual_accrual_month: number
+          annual_first_use_by_day: number | null
+          annual_first_use_by_month: number | null
           archived_at: string | null
           carry_over_policy:
             | Database["public"]["Enums"]["carry_over_policy"]
@@ -406,6 +506,10 @@ export type Database = {
           year_reset_month: number | null
         }
         Insert: {
+          annual_accrual_day?: number
+          annual_accrual_month?: number
+          annual_first_use_by_day?: number | null
+          annual_first_use_by_month?: number | null
           archived_at?: string | null
           carry_over_policy?:
             | Database["public"]["Enums"]["carry_over_policy"]
@@ -424,6 +528,10 @@ export type Database = {
           year_reset_month?: number | null
         }
         Update: {
+          annual_accrual_day?: number
+          annual_accrual_month?: number
+          annual_first_use_by_day?: number | null
+          annual_first_use_by_month?: number | null
           archived_at?: string | null
           carry_over_policy?:
             | Database["public"]["Enums"]["carry_over_policy"]

@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { notifyRequestSubmitted } from '@/lib/leave/notify';
+import {
+  fetchGrantsForMember,
+  grantsEligibleForStartDate,
+  replaceAnnualAllocations,
+  type AnnualAllocationInput,
+} from '@/lib/leave/entitlement-grants';
 import { leaveRequestWithUserAvatarSelect } from '@/lib/leave/queries';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { getCurrentUser } from '@/lib/projects/access';
@@ -15,6 +21,14 @@ const createSchema = z.object({
   endDate: z.string(),
   reason: z.string().nullable().optional(),
   attachmentUrl: z.string().nullable().optional(),
+  annualAllocations: z
+    .array(
+      z.object({
+        grantId: z.string().uuid(),
+        workingDays: z.number().positive(),
+      })
+    )
+    .optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -46,7 +60,7 @@ export async function POST(request: NextRequest) {
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
 
-  const { projectId, type, startDate, endDate, reason, attachmentUrl } = parsed.data;
+  const { projectId, type, startDate, endDate, reason, attachmentUrl, annualAllocations } = parsed.data;
 
   if (attachmentUrl && type !== 'sick') {
     return NextResponse.json({ error: 'Attachments are only allowed for sick leave' }, { status: 400 });
@@ -64,11 +78,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: workingDaysError.message }, { status: 500 });
   }
 
+  const wd = workingDays ?? 0;
+
+  let resolvedAnnualAllocations: AnnualAllocationInput[] | undefined =
+    type === 'annual' ? annualAllocations : undefined;
+
+  if (type === 'annual') {
+    const grants = await fetchGrantsForMember(supabase, projectId, user.id);
+    const eligible = grantsEligibleForStartDate(grants, startDate);
+    if (eligible.length === 0 && grants.length > 0) {
+      return NextResponse.json(
+        { error: 'No annual entitlement fund is valid for the start date of this request.' },
+        { status: 400 }
+      );
+    }
+    if (eligible.length >= 2) {
+      if (!resolvedAnnualAllocations || resolvedAnnualAllocations.length === 0) {
+        return NextResponse.json(
+          {
+            error:
+              'Multiple annual funds apply to this period. Send annualAllocations: [{ grantId, workingDays }, ...] totalling your working days.',
+          },
+          { status: 400 }
+        );
+      }
+    } else if (eligible.length === 1) {
+      if (!resolvedAnnualAllocations || resolvedAnnualAllocations.length === 0) {
+        resolvedAnnualAllocations = [{ grantId: eligible[0].id, workingDays: wd }];
+      }
+    }
+  }
+
   const balanceCheck = await assertLeaveBalance(supabase, {
     userId: user.id,
     projectId,
     type: type as LeaveType,
-    workingDays: workingDays ?? 0,
+    workingDays: wd,
+    annualAllocations: resolvedAnnualAllocations,
   });
   if (!balanceCheck.ok) {
     return NextResponse.json({ error: balanceCheck.error }, { status: balanceCheck.status });
@@ -82,7 +128,7 @@ export async function POST(request: NextRequest) {
       type: type as LeaveType,
       start_date: startDate,
       end_date: endDate,
-      working_days_count: workingDays ?? 0,
+      working_days_count: wd,
       status: 'pending',
       reason: reason ?? null,
       attachment_url: attachmentUrl ?? null,
@@ -91,6 +137,14 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (type === 'annual' && resolvedAnnualAllocations && resolvedAnnualAllocations.length > 0) {
+    const { error: allocError } = await replaceAnnualAllocations(supabase, requestRow.id, resolvedAnnualAllocations);
+    if (allocError) {
+      await supabase.from('leave_requests').delete().eq('id', requestRow.id);
+      return NextResponse.json({ error: allocError.message || 'Failed to save entitlement split' }, { status: 500 });
+    }
+  }
 
   await supabase.from('leave_request_history').insert({
     request_id: requestRow.id,
