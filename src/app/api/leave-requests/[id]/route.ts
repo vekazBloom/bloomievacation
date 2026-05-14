@@ -14,6 +14,7 @@ import {
 } from '@/lib/leave/entitlement-grants';
 import { isValidSickLeaveAttachmentPath } from '@/lib/security/attachment';
 import { createServiceClient } from '@/lib/supabase/server';
+import { sendLeaveApprovalForwardCopies } from '@/lib/leave/approval-forward-email';
 
 const updateSchema = z.object({
   action: z.enum(['approve', 'reject', 'cancel', 'edit']).optional(),
@@ -82,6 +83,7 @@ export async function PATCH(
         decided_by: user.id,
         decided_at: new Date().toISOString(),
         decision_note: parsed.data.decisionNote ?? null,
+        ...(status === 'rejected' ? { approval_forward_sent_at: null } : {}),
       })
       .eq('id', params.id)
       .select('*')
@@ -108,6 +110,16 @@ export async function PATCH(
       status,
       reason: parsed.data.decisionNote ?? undefined,
     });
+
+    if (status === 'approved') {
+      const fwd = await sendLeaveApprovalForwardCopies(service, {
+        approverUserId: user.id,
+        leaveRequestId: params.id,
+      });
+      if (fwd.error) {
+        console.error('[leave-approval-forward]', fwd.error);
+      }
+    }
 
     return NextResponse.json({ request: data });
   }

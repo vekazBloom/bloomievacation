@@ -13,6 +13,7 @@ import {
   UserX,
   Plus,
   CalendarPlus,
+  MailPlus,
 } from 'lucide-react';
 import { RemoteImage } from '@/components/ui/remote-image';
 import { Button } from '@/components/ui/button';
@@ -47,11 +48,17 @@ export function Sidebar({
     [projects, pathname]
   );
 
-  const navItems = [
+  const navItems: {
+    href: string;
+    label: string;
+    icon: typeof LayoutDashboard;
+    exact?: boolean;
+  }[] = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/projects', label: 'Projects', icon: FolderKanban },
     { href: '/calendar', label: 'My calendar', icon: CalendarDays },
-    { href: '/profile', label: 'Profile', icon: Users },
+    { href: '/profile', label: 'Profile', icon: Users, exact: true },
+    { href: '/profile/leave-approval-forwarding', label: 'Approval email copies', icon: MailPlus },
   ];
 
   const adminItems = [
@@ -99,7 +106,9 @@ export function Sidebar({
           <ul className="space-y-0.5">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+              const isActive = item.exact
+                ? pathname === item.href
+                : pathname === item.href || pathname.startsWith(item.href + '/');
               return (
                 <li key={item.href}>
                   <Link
