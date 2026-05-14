@@ -8,7 +8,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDateRange } from '@/lib/utils';
-import { formatAnnualRequestFundsSummary } from '@/lib/leave/format-annual-request-funds';
+import {
+  formatAnnualRequestFundsSummary,
+  formatLeaveBalancePoolLine,
+} from '@/lib/leave/format-annual-request-funds';
 import { projectPath } from '@/lib/projects/paths';
 
 export function LeaveRequestsPanel({
@@ -112,6 +115,10 @@ export function LeaveRequestsPanel({
                     {request.type === 'annual' ? (
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {formatAnnualRequestFundsSummary(request.leave_request_grant_allocations)}
+                      </p>
+                    ) : request.type === 'sick' || request.type === 'religious' ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {formatLeaveBalancePoolLine(request.type)}
                       </p>
                     ) : null}
                     {request.reason ? (

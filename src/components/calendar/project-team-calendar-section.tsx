@@ -15,11 +15,13 @@ function getProjectNameFromRow(request: LeaveRequestRow) {
 function mapRequestToSchedulerEvent(
   request: LeaveRequestRow,
   projectViewId: string,
-  reviewableProjectIds: Set<string>
+  reviewableProjectIds: Set<string>,
+  overrides?: { subtitle?: string }
 ) {
   return mapLeaveRequestToEvent(request, {
     viewingProjectId: projectViewId,
     canReviewThisRequest: Boolean(request.project_id && reviewableProjectIds.has(request.project_id)),
+    ...(overrides?.subtitle ? { subtitle: overrides.subtitle } : {}),
   });
 }
 
@@ -128,15 +130,11 @@ export async function ProjectTeamCalendarSection({ slug }: { slug: string }) {
   }
 
   const mergedReligious = Array.from(groupedReligious.values()).map(({ request, projectNames }) => {
-    const projectCount = projectNames.size;
-    if (projectCount <= 1) {
+    if (projectNames.size <= 1) {
       return mapRequestToSchedulerEvent(request, project.id, reviewableProjectIds);
     }
-    const names = [...projectNames].sort().join(', ');
-    return mapLeaveRequestToEvent(request, {
-      viewingProjectId: project.id,
-      subtitle: `${names} · ${request.type} · ${request.status || 'approved'}`,
-      canReviewThisRequest: Boolean(request.project_id && reviewableProjectIds.has(request.project_id)),
+    return mapRequestToSchedulerEvent(request, project.id, reviewableProjectIds, {
+      subtitle: `${request.type} · ${request.status || 'approved'}`,
     });
   });
 

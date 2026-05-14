@@ -11,7 +11,7 @@ import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 import { leaveRequestUserEmbed, leaveRequestGrantAllocationsEmbed } from '@/lib/leave/queries';
 import { formatDateRange } from '@/lib/utils';
-import { formatAnnualRequestFundsSummary, type RequestAllocationRow } from '@/lib/leave/format-annual-request-funds';
+import { formatAnnualRequestFundsSummary, formatLeaveBalancePoolLine, type RequestAllocationRow } from '@/lib/leave/format-annual-request-funds';
 
 function statusBadgeVariant(status: string) {
   if (status === 'approved') return 'success' as const;
@@ -112,6 +112,11 @@ export default async function ProjectRequestDetailsPage({
                     .leave_request_grant_allocations
                 )}
               </p>
+            </div>
+          ) : request.type === 'sick' || request.type === 'religious' ? (
+            <div className="rounded-lg border border-border p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Balance pool</p>
+              <p className="mt-1 font-medium">{formatLeaveBalancePoolLine(request.type)}</p>
             </div>
           ) : null}
 

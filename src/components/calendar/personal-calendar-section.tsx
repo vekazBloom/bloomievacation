@@ -57,13 +57,11 @@ export async function PersonalCalendarSection() {
   }
 
   const mergedReligious = Array.from(groupedReligious.values()).map(({ request, projectNames }) => {
-    const projectCount = projectNames.size;
-    if (projectCount <= 1) {
+    if (projectNames.size <= 1) {
       return mapLeaveRequestToEvent(request);
     }
-
     return mapLeaveRequestToEvent(request, {
-      subtitle: `${projectCount} projects · ${request.type} · ${request.status || 'approved'}`,
+      subtitle: `${request.type} · ${request.status || 'approved'}`,
     });
   });
 

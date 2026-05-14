@@ -42,27 +42,36 @@ export async function syncReligiousLeaveRequests(
     .select('project_id, projects(name, slug)')
     .eq('user_id', userId);
 
+  const membershipList = memberships || [];
+  if (membershipList.length === 0) return;
+
+  /** One canonical project per auto-logged holiday: avoids N duplicate rows (and N× balance usage) for N teams. */
+  const canonicalProjectId = [...membershipList]
+    .map((m) => m.project_id as string)
+    .filter(Boolean)
+    .sort()[0];
+
   const { data: user } = await service.from('users').select('name, email').eq('id', userId).maybeSingle();
 
-  for (const membership of memberships || []) {
-    const projectMeta = membership.projects as { name?: string; slug?: string } | null;
-    for (const holiday of holidays || []) {
-      const holidayDate = resolveHolidayDate(holiday.date, year, holiday.is_recurring ?? true);
-      const { data: request } = await service
-        .from('leave_requests')
-        .insert({
-          user_id: userId,
-          project_id: membership.project_id,
-          type: 'religious',
-          start_date: holidayDate,
-          end_date: holidayDate,
-          working_days_count: 1,
-          status: 'approved',
-          reason: `Religious holiday: ${holiday.name}`,
-        })
-        .select('id')
-        .single();
+  for (const holiday of holidays || []) {
+    const holidayDate = resolveHolidayDate(holiday.date, year, holiday.is_recurring ?? true);
+    const { data: request } = await service
+      .from('leave_requests')
+      .insert({
+        user_id: userId,
+        project_id: canonicalProjectId,
+        type: 'religious',
+        start_date: holidayDate,
+        end_date: holidayDate,
+        working_days_count: 1,
+        status: 'approved',
+        reason: `Religious holiday: ${holiday.name}`,
+      })
+      .select('id')
+      .single();
 
+    for (const membership of membershipList) {
+      const projectMeta = membership.projects as { name?: string; slug?: string } | null;
       const { data: reviewers } = await service
         .from('project_members')
         .select('user_id, users(email, name)')
@@ -92,15 +101,15 @@ export async function syncReligiousLeaveRequests(
           });
         }
       }
+    }
 
-      if (request?.id) {
-        await service.from('leave_request_history').insert({
-          request_id: request.id,
-          action: 'auto_created',
-          performed_by: userId,
-          snapshot: { holidayId: holiday.id, year },
-        });
-      }
+    if (request?.id) {
+      await service.from('leave_request_history').insert({
+        request_id: request.id,
+        action: 'auto_created',
+        performed_by: userId,
+        snapshot: { holidayId: holiday.id, year },
+      });
     }
   }
 }

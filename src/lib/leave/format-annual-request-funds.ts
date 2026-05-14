@@ -10,6 +10,13 @@ export type RequestAllocationRow = {
   annual_entitlement_grants?: GrantRef;
 };
 
+/** Sick / religious use a single global counter (no per-fund allocation rows like annual). */
+export function formatLeaveBalancePoolLine(leaveType: string): string | null {
+  if (leaveType === 'sick') return 'Pool: sick leave (global balance)';
+  if (leaveType === 'religious') return 'Pool: religious leave (global balance)';
+  return null;
+}
+
 /** Human-readable line for project request lists (annual leave only). */
 export function formatAnnualRequestFundsSummary(
   allocations: RequestAllocationRow[] | null | undefined
