@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { fetchApprovedUsageForMember } from '@/lib/leave/approved-usage-from-requests';
+import { fetchApprovedUsageGloballyForUser } from '@/lib/leave/approved-usage-from-requests';
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
@@ -64,7 +64,7 @@ export default async function ProjectMemberProfilePage({
       .eq('project_id', projectId)
       .eq('user_id', params.userId)
       .order('created_at', { ascending: false }),
-    fetchApprovedUsageForMember(supabase, projectId, params.userId),
+    fetchApprovedUsageGloballyForUser(supabase, params.userId),
   ]);
 
   const canReview = canReviewLeaveForRole(profile.is_system_admin, viewerMembership.role);
@@ -118,6 +118,10 @@ export default async function ProjectMemberProfilePage({
                 </p>
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              &quot;Used&quot; sums approved days from every project you belong to; the allowance shown is
+              this team&apos;s allocation.
+            </p>
           </div>
         </CardContent>
       </Card>

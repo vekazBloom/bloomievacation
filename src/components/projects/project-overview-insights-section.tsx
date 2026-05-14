@@ -1,5 +1,5 @@
 import { ProjectOverviewInsights } from '@/components/projects/project-overview-insights';
-import { fetchApprovedUsageByUserForProject } from '@/lib/leave/approved-usage-from-requests';
+import { fetchApprovedUsageGloballyForUsers } from '@/lib/leave/approved-usage-from-requests';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import {
   fetchProjectUpcomingRequests,
@@ -27,7 +27,7 @@ export async function ProjectOverviewInsightsSection({
   const weekEndIso = weekEnd.toISOString().split('T')[0];
   const monthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
 
-  const [{ data: members }, metrics, upcomingRequests, approvedByUser] = await Promise.all([
+  const [{ data: members }, metrics, upcomingRequests] = await Promise.all([
     supabase
       .from('project_members')
       .select(
@@ -36,8 +36,10 @@ export async function ProjectOverviewInsightsSection({
       .eq('project_id', projectId),
     loadProjectOverviewMetrics(supabase, projectId, today, weekEndIso, monthStart),
     fetchProjectUpcomingRequests(supabase, projectId, today),
-    fetchApprovedUsageByUserForProject(supabase, projectId),
   ]);
+
+  const memberUserIds = [...new Set((members ?? []).map((m: any) => m.user_id as string).filter(Boolean))];
+  const approvedByUser = await fetchApprovedUsageGloballyForUsers(supabase, memberUserIds);
 
   const membersForStats = (members || []).map((m: any) => {
     const u = approvedByUser.get(m.user_id as string);

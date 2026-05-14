@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { fetchApprovedUsageByUserForProject } from '@/lib/leave/approved-usage-from-requests';
+import { fetchApprovedUsageGloballyForUsers } from '@/lib/leave/approved-usage-from-requests';
 import { LeaveRequestsPanel } from '@/components/leave/leave-requests-panel';
 import { ProjectOverviewInsightsFallback } from '@/components/projects/project-overview-insights-fallback';
 import { ProjectOverviewInsightsSection } from '@/components/projects/project-overview-insights-section';
@@ -41,7 +41,7 @@ export default async function ProjectPage({ params }: { params: { slug: string }
   const isAdmin = myMembership.role === 'admin';
   const canReview = canReviewLeaveForRole(profile.is_system_admin, myMembership.role);
 
-  const [{ data: members }, { data: pendingRequests }, approvedByUser] = await Promise.all([
+  const [{ data: members }, { data: pendingRequests }] = await Promise.all([
     supabase
       .from('project_members')
       .select(
@@ -56,8 +56,10 @@ export default async function ProjectPage({ params }: { params: { slug: string }
           .eq('status', 'pending')
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as any[] }),
-    fetchApprovedUsageByUserForProject(supabase, projectId),
   ]);
+
+  const memberUserIds = [...new Set((members ?? []).map((m: any) => m.user_id as string).filter(Boolean))];
+  const approvedByUser = await fetchApprovedUsageGloballyForUsers(supabase, memberUserIds);
 
   const pendingCount = pendingRequests?.length || 0;
 

@@ -14,17 +14,25 @@ function addToBucket(bucket: ApprovedUsageByType, type: string, days: number) {
   else if (type === 'religious') bucket.religious += days;
 }
 
-/** Sum approved working days per user for one project (matches calendar / leave history). */
-export async function fetchApprovedUsageByUserForProject(
+/**
+ * Sum approved working days per user across all projects.
+ * Use this for UI when someone is on multiple teams so "used" matches everywhere
+ * (totals still come from project_members for the current project).
+ */
+export async function fetchApprovedUsageGloballyForUsers(
   supabase: AppSupabase,
-  projectId: string
+  userIds: string[]
 ): Promise<Map<string, ApprovedUsageByType>> {
   const map = new Map<string, ApprovedUsageByType>();
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (unique.length === 0) {
+    return map;
+  }
 
   const { data, error } = await supabase
     .from('leave_requests')
     .select('user_id, type, working_days_count')
-    .eq('project_id', projectId)
+    .in('user_id', unique)
     .eq('status', 'approved');
 
   if (error || !data) {
@@ -47,25 +55,10 @@ export async function fetchApprovedUsageByUserForProject(
   return map;
 }
 
-export async function fetchApprovedUsageForMember(
+export async function fetchApprovedUsageGloballyForUser(
   supabase: AppSupabase,
-  projectId: string,
   userId: string
 ): Promise<ApprovedUsageByType> {
-  const { data, error } = await supabase
-    .from('leave_requests')
-    .select('type, working_days_count')
-    .eq('project_id', projectId)
-    .eq('user_id', userId)
-    .eq('status', 'approved');
-
-  if (error || !data) {
-    return emptyUsage();
-  }
-
-  const bucket = emptyUsage();
-  for (const row of data) {
-    addToBucket(bucket, row.type as string, Number(row.working_days_count ?? 0));
-  }
-  return bucket;
+  const map = await fetchApprovedUsageGloballyForUsers(supabase, [userId]);
+  return map.get(userId) ?? emptyUsage();
 }
