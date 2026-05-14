@@ -243,10 +243,11 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
         <div className="space-y-2 border-t border-border pt-4">
           <h3 className="text-sm font-semibold text-foreground">Team annual funds (active & upcoming)</h3>
           <p className="text-xs text-muted-foreground">
-            One row per member entitlement pool. “Upcoming” means <code className="text-xs">valid_from</code>{' '}
-            is still in the future; “Active” is the window you can book against today.
+            All entitlement rows for the team (active, upcoming, ended). Use <strong>Edit</strong> to rename
+            a fund, change validity, grant year, or allocated days (non-legacy). Legacy pool size follows
+            member totals on Members.
           </p>
-          <ProjectAnnualGrantsOverview projectId={project.id} />
+          <ProjectAnnualGrantsOverview projectId={project.id} projectSlug={project.slug} />
         </div>
 
         <div className="flex flex-wrap gap-3">

@@ -36,7 +36,9 @@ On **`projects`**:
 ## Where this appears in the app
 
 - **Project overview** (main project page): shows the **next** calendar occurrence of the configured year-reset and accrual month/day, with a day countdown.
-- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields, plus a **Team annual funds** table listing each member’s **active** and **upcoming** grant rows (`valid_from` / `valid_to`, allocated days, status).
+- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields, plus a **Team annual funds** table (all rows: active, upcoming, ended). Use **Edit** on a row to change **label** (fund name shown in the Fund column), **`valid_from` / `valid_to`**, optional **`grant_year`**, and **`days_allocated`** (non-legacy only). This calls `PATCH /api/projects/[slug]/annual-grants/[grantId]` (project admin). **Legacy** rows: `days_allocated` stays in sync with the member’s annual totals on **Members** — only rename and validity (and optional year) are editable from settings; do not delete legacy rows from the app.
+
+- **Deleting a fund**: `DELETE` on the same route is allowed for **non-legacy** grants only when there are **no** `leave_request_grant_allocations` referencing that grant.
 
 These UI elements follow the same calendar rules as this document. The automated year-reset **job** still runs only on the configured reset date (`year_reset_month` / `year_reset_day`).
 
