@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { fetchApprovedUsageForMember } from '@/lib/leave/approved-usage-from-requests';
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
@@ -13,6 +14,8 @@ import { formatRoleLabel } from '@/lib/email/format';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 import { getInitials } from '@/lib/utils';
+
+export const dynamic = 'force-dynamic';
 
 export default async function ProjectMemberProfilePage({
   params,
@@ -54,12 +57,15 @@ export default async function ProjectMemberProfilePage({
   ).users;
   if (!memberUser) notFound();
 
-  const { data: requests } = await supabase
-    .from('leave_requests')
-    .select(leaveRequestWithUserSelect)
-    .eq('project_id', projectId)
-    .eq('user_id', params.userId)
-    .order('created_at', { ascending: false });
+  const [{ data: requests }, approvedUsage] = await Promise.all([
+    supabase
+      .from('leave_requests')
+      .select(leaveRequestWithUserSelect)
+      .eq('project_id', projectId)
+      .eq('user_id', params.userId)
+      .order('created_at', { ascending: false }),
+    fetchApprovedUsageForMember(supabase, projectId, params.userId),
+  ]);
 
   const canReview = canReviewLeaveForRole(profile.is_system_admin, viewerMembership.role);
 
@@ -96,19 +102,19 @@ export default async function ProjectMemberProfilePage({
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Annual</p>
                 <p className="mt-1 font-mono text-lg tabular-nums">
-                  {membership.annual_leave_used} / {membership.annual_leave_total}
+                  {approvedUsage.annual} / {membership.annual_leave_total}
                 </p>
               </div>
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Sick</p>
                 <p className="mt-1 font-mono text-lg tabular-nums">
-                  {membership.sick_leave_used} / {membership.sick_leave_total}
+                  {approvedUsage.sick} / {membership.sick_leave_total}
                 </p>
               </div>
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Religious</p>
                 <p className="mt-1 font-mono text-lg tabular-nums">
-                  {membership.religious_leave_used} / {membership.religious_leave_total}
+                  {approvedUsage.religious} / {membership.religious_leave_total}
                 </p>
               </div>
             </div>

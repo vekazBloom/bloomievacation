@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { fetchApprovedUsageByUserForProject } from '@/lib/leave/approved-usage-from-requests';
 import { LeaveRequestsPanel } from '@/components/leave/leave-requests-panel';
 import { ProjectOverviewInsightsFallback } from '@/components/projects/project-overview-insights-fallback';
 import { ProjectOverviewInsightsSection } from '@/components/projects/project-overview-insights-section';
@@ -40,10 +41,12 @@ export default async function ProjectPage({ params }: { params: { slug: string }
   const isAdmin = myMembership.role === 'admin';
   const canReview = canReviewLeaveForRole(profile.is_system_admin, myMembership.role);
 
-  const [{ data: members }, { data: pendingRequests }] = await Promise.all([
+  const [{ data: members }, { data: pendingRequests }, approvedByUser] = await Promise.all([
     supabase
       .from('project_members')
-      .select('role, annual_leave_total, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(id, name, email, avatar_url)')
+      .select(
+        'user_id, role, annual_leave_total, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(id, name, email, avatar_url)'
+      )
       .eq('project_id', projectId),
     canReview
       ? supabase
@@ -53,6 +56,7 @@ export default async function ProjectPage({ params }: { params: { slug: string }
           .eq('status', 'pending')
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as any[] }),
+    fetchApprovedUsageByUserForProject(supabase, projectId),
   ]);
 
   const pendingCount = pendingRequests?.length || 0;
@@ -183,7 +187,12 @@ export default async function ProjectPage({ params }: { params: { slug: string }
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {(members || []).map((m: any) => (
+                {(members || []).map((m: any) => {
+                  const usage = approvedByUser.get(m.user_id as string);
+                  const annualUsed = usage?.annual ?? Number(m.annual_leave_used ?? 0);
+                  const sickUsed = usage?.sick ?? Number(m.sick_leave_used ?? 0);
+                  const religiousUsed = usage?.religious ?? Number(m.religious_leave_used ?? 0);
+                  return (
                   <tr key={m.users.id} className="hover:bg-accent/30">
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-3">
@@ -212,16 +221,17 @@ export default async function ProjectPage({ params }: { params: { slug: string }
                       </Badge>
                     </td>
                     <td className="px-4 py-3 font-mono tabular-nums">
-                      {m.annual_leave_used} / {m.annual_leave_total}
+                      {annualUsed} / {m.annual_leave_total}
                     </td>
                     <td className="px-4 py-3 font-mono tabular-nums">
-                      {m.sick_leave_used} / {m.sick_leave_total}
+                      {sickUsed} / {m.sick_leave_total}
                     </td>
                     <td className="px-4 py-3 font-mono tabular-nums">
-                      {m.religious_leave_used} / {m.religious_leave_total}
+                      {religiousUsed} / {m.religious_leave_total}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
