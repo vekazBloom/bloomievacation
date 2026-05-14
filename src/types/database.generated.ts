@@ -374,7 +374,7 @@ export type Database = {
             foreignKeyName: "annual_entitlement_grants_definition_id_fkey"
             columns: ["definition_id"]
             isOneToOne: false
-            referencedRelation: "project_annual_fund_definitions"
+            referencedRelation: "annual_fund_definitions"
             referencedColumns: ["id"]
           },
           {
@@ -432,13 +432,12 @@ export type Database = {
           },
         ]
       }
-      project_annual_fund_definitions: {
+      annual_fund_definitions: {
         Row: {
           created_at: string
           grant_year: number | null
           id: string
           label: string
-          project_id: string
           sort_order: number
           updated_at: string
           valid_from: string
@@ -449,7 +448,6 @@ export type Database = {
           grant_year?: number | null
           id?: string
           label: string
-          project_id: string
           sort_order?: number
           updated_at?: string
           valid_from: string
@@ -460,21 +458,12 @@ export type Database = {
           grant_year?: number | null
           id?: string
           label?: string
-          project_id?: string
           sort_order?: number
           updated_at?: string
           valid_from?: string
           valid_to?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "project_annual_fund_definitions_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       project_members: {
         Row: {

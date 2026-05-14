@@ -41,9 +41,8 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
     .eq('project_id', projectId);
 
   const { data: fundDefRows } = await supabase
-    .from('project_annual_fund_definitions')
+    .from('annual_fund_definitions')
     .select('id, label')
-    .eq('project_id', projectId)
     .order('sort_order', { ascending: true })
     .order('label', { ascending: true });
 

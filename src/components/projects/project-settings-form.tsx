@@ -242,16 +242,16 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
         />
 
         <div className="space-y-2 border-t border-border pt-4">
-          <ProjectAnnualFundDefinitionsPanel projectSlug={project.slug} />
+          <ProjectAnnualFundDefinitionsPanel />
         </div>
 
         <div className="space-y-2 border-t border-border pt-4">
           <h3 className="text-sm font-semibold text-foreground">Team annual funds</h3>
           <p className="text-xs text-muted-foreground">
             All entitlement rows for the team (active, upcoming, ended). Use <strong>Edit</strong> to attach a
-            project fund definition and set allocated days per member. Create definitions in the section above.
-            Legacy rows: changing days updates the member&apos;s annual total on <strong>Manage members</strong>{' '}
-            (total + carried over).
+            global fund template and set allocated days per member. Create templates in the section above (shared
+            across every project). Legacy rows: changing days updates the member&apos;s annual total on{' '}
+            <strong>Manage members</strong> (total + carried over).
           </p>
           <ProjectAnnualGrantsOverview projectId={project.id} projectSlug={project.slug} />
         </div>

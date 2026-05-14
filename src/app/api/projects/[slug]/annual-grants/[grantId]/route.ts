@@ -71,10 +71,9 @@ export async function PATCH(
       defPatch = { definition_id: null, updated_at: now };
     } else {
       const { data: def, error: dErr } = await supabase
-        .from('project_annual_fund_definitions')
+        .from('annual_fund_definitions')
         .select('id, label, grant_year, valid_from, valid_to')
         .eq('id', p.definition_id)
-        .eq('project_id', project.id)
         .maybeSingle();
 
       if (dErr || !def) {

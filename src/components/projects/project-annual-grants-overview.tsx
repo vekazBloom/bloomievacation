@@ -101,13 +101,13 @@ export function ProjectAnnualGrantsOverview({
 
   const loadDefinitions = useCallback(async () => {
     const res = await fetch(
-      `/api/projects/${encodeURIComponent(projectSlug)}/annual-fund-definitions`
+      '/api/annual-fund-definitions'
     );
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) return;
     const list = (payload.definitions || []) as FundDefinition[];
     setDefinitions(list.map((d) => ({ id: d.id, label: d.label })));
-  }, [projectSlug]);
+  }, []);
 
   useEffect(() => {
     void loadRows();

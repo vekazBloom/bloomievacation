@@ -7,6 +7,7 @@ import {
   validateAllocationTotals,
   type AnnualGrantRow,
 } from '../src/lib/leave/entitlement-grants';
+import { fundPeriodLabelForAnchor } from '../src/lib/leave/fund-period-label';
 
 const g2025: AnnualGrantRow = {
   id: 'a',
@@ -51,4 +52,11 @@ test('validateAllocationTotals enforces sum and positivity', () => {
 
 test('grantRemaining subtracts consumed', () => {
   assert.equal(grantRemaining(g2025, 4), 6);
+});
+
+test('fundPeriodLabelForAnchor classifies vs leave start', () => {
+  assert.equal(fundPeriodLabelForAnchor('2025-06-01', '2025-01-01', '2025-12-31'), 'Active');
+  assert.equal(fundPeriodLabelForAnchor('2024-12-01', '2025-01-01', '2025-12-31'), 'Future');
+  assert.equal(fundPeriodLabelForAnchor('2026-06-01', '2025-01-01', '2025-12-31'), 'Past');
+  assert.equal(fundPeriodLabelForAnchor('2025-06-01', '2025-01-01', null), 'Active');
 });

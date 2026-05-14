@@ -1,7 +1,7 @@
 import type { AppSupabase } from '@/lib/supabase/app-client';
 
 /**
- * Links a member's legacy annual grant to a project fund definition (copies label/dates/year),
+ * Links a member's legacy annual grant to a global fund definition (copies label/dates/year),
  * or clears only `definition_id` when `definitionId` is null.
  */
 export async function syncLegacyGrantWithFundDefinition(
@@ -21,10 +21,9 @@ export async function syncLegacyGrantWithFundDefinition(
   }
 
   const { data: def, error: dErr } = await supabase
-    .from('project_annual_fund_definitions')
+    .from('annual_fund_definitions')
     .select('id, label, grant_year, valid_from, valid_to')
     .eq('id', params.definitionId)
-    .eq('project_id', params.projectId)
     .maybeSingle();
 
   if (dErr) return { error: dErr.message };

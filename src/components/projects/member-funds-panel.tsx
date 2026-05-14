@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
 import { formatPolicyDate } from '@/lib/leave/annual-policy-dates';
 import { projectPath } from '@/lib/projects/paths';
+import { cn } from '@/lib/utils';
 
 export type MemberFundGrant = {
   id: string;
@@ -60,10 +61,14 @@ export function MemberFundsPanel({
   projectSlug,
   grants,
   allocationLines,
+  selectedSummaryGrantId = null,
+  onSelectSummaryGrant,
 }: {
   projectSlug: string;
   grants: MemberFundGrant[];
   allocationLines: MemberFundAllocationLine[];
+  selectedSummaryGrantId?: string | null;
+  onSelectSummaryGrant?: (id: string | null) => void;
 }) {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'upcoming' | 'ended'>('all');
@@ -179,7 +184,35 @@ export function MemberFundsPanel({
             const remaining = allocated - reserved;
             const lines = linesByGrant.get(g.id) || [];
             return (
-              <div key={g.id} className="rounded-lg border border-border bg-card/60 p-4 shadow-sm">
+              <div
+                key={g.id}
+                className={cn(
+                  'rounded-lg border border-border bg-card/60 p-4 shadow-sm transition-shadow',
+                  onSelectSummaryGrant && 'cursor-pointer hover:bg-card',
+                  selectedSummaryGrantId === g.id && 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+                )}
+                onClick={
+                  onSelectSummaryGrant
+                    ? (e) => {
+                        if ((e.target as HTMLElement).closest('a')) return;
+                        onSelectSummaryGrant(selectedSummaryGrantId === g.id ? null : g.id);
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  onSelectSummaryGrant
+                    ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectSummaryGrant(selectedSummaryGrantId === g.id ? null : g.id);
+                        }
+                      }
+                    : undefined
+                }
+                role={onSelectSummaryGrant ? 'button' : undefined}
+                tabIndex={onSelectSummaryGrant ? 0 : undefined}
+                aria-pressed={onSelectSummaryGrant ? selectedSummaryGrantId === g.id : undefined}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">

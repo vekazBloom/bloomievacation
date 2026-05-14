@@ -6,13 +6,15 @@ This app models **annual leave** as one or more **entitlement grants** per proje
 - **`days_allocated`**: how many working days that pool may fund.
 - **`valid_from` / `valid_to`**: the window in which the **start date** of a request may draw from that pool (inclusive date strings, `YYYY-MM-DD`).
 - **`source`**: `legacy_migration` (pre-feature backfill), `grant` (opened by the year-reset job), or `carryover` (reserved for future use).
-- **`definition_id`** (optional): links a grant to a **`project_annual_fund_definitions`** row so label and validity can be maintained project-wide.
+- **`definition_id`** (optional): links a grant to an **`annual_fund_definitions`** row so label and validity follow a shared template across the whole app.
 
 When a member requests annual leave, the API stores **`leave_request_grant_allocations`**: rows `(leave_request_id, grant_id, working_days)` so consumption is tracked **per fund**. Pending and approved allocations both reserve balance.
 
-## Project-wide fund definitions
+## Global fund definitions
 
-Table **`project_annual_fund_definitions`** holds reusable templates (label, optional grant year, `valid_from` / `valid_to`, sort order). Project admins manage them under **Project settings** (API: `GET/POST /api/projects/[slug]/annual-fund-definitions`, `PATCH/DELETE …/[definitionId]`). Updating a definition propagates label and dates to every **`annual_entitlement_grants`** row that still references it.
+Table **`annual_fund_definitions`** holds reusable templates (label, optional grant year, `valid_from` / `valid_to`, sort order). They are **not** scoped by project: the same catalog is used everywhere so people on multiple projects do not see conflicting fund lists.
+
+Users who are **system admins** or **admins on at least one project** can manage templates (API: `GET/POST /api/annual-fund-definitions`, `PATCH/DELETE /api/annual-fund-definitions/[definitionId]`). The UI for editing them lives under **Project settings** for convenience, but changes apply to **all** projects. Updating a template propagates label and dates to every **`annual_entitlement_grants`** row that still references it.
 
 On **Manage members**, each member’s **legacy** annual pool is assigned with a **dropdown** (`annual_fund_definition_id` on `PATCH …/members/[memberId]`). That copies the definition’s metadata onto the legacy grant and sets `definition_id`. **Allocated** days on the legacy grant stay driven by the member’s annual totals on the same page; the definition does not override the day count.
 
@@ -43,7 +45,7 @@ On **`projects`**:
 ## Where this appears in the app
 
 - **Project overview** (main project page): shows the **next** calendar occurrence of the configured year-reset and accrual month/day, with a day countdown.
-- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields; **Annual fund definitions** to create/edit project-wide funds; and a **Team annual funds** table with **Edit** per row (`PATCH /api/projects/[slug]/annual-grants/[grantId]`) to attach a definition and set **allocated working days** (cannot go below pending+approved allocations). Legacy rows: changing days updates **`project_members.annual_leave_total`** so the pool matches **Manage members** (trigger keeps `days_allocated` in sync).
+- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields; **Annual fund definitions (global)** to create/edit shared templates; and a **Team annual funds** table with **Edit** per row (`PATCH /api/projects/[slug]/annual-grants/[grantId]`) to attach a definition and set **allocated working days** (cannot go below pending+approved allocations). Legacy rows: changing days updates **`project_members.annual_leave_total`** so the pool matches **Manage members** (trigger keeps `days_allocated` in sync).
 - **Manage members**: role, **annual fund** (legacy link to a definition), and leave totals. Saving applies the selected definition to the member’s legacy grant when changed.
 
 These UI elements follow the same calendar rules as this document. The automated year-reset **job** still runs only on the configured reset date (`year_reset_month` / `year_reset_day`).
@@ -53,6 +55,7 @@ These UI elements follow the same calendar rules as this document. The automated
 Apply migrations in order, including:
 
 - `supabase/migrations/012_annual_entitlement_grants.sql` — grants and project columns.
-- `supabase/migrations/013_project_annual_fund_definitions.sql` — definitions table and `definition_id` on grants.
+- `supabase/migrations/013_project_annual_fund_definitions.sql` — original per-project definitions table and `definition_id` on grants.
+- `supabase/migrations/014_global_annual_fund_definitions.sql` — migrates to **`annual_fund_definitions`** (no `project_id`), repoints `definition_id`, drops **`project_annual_fund_definitions`**.
 
-Deploy app code that references definitions only after **013** is applied.
+Deploy app code that references **`annual_fund_definitions`** and the global API only after **014** is applied (after **013** on fresh installs).

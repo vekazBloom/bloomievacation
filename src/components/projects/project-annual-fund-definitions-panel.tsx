@@ -23,7 +23,7 @@ function parseLocalDay(iso: string): Date {
   return new Date(y, (m || 1) - 1, d || 1);
 }
 
-export function ProjectAnnualFundDefinitionsPanel({ projectSlug }: { projectSlug: string }) {
+export function ProjectAnnualFundDefinitionsPanel() {
   const router = useRouter();
   const [rows, setRows] = useState<Definition[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +38,7 @@ export function ProjectAnnualFundDefinitionsPanel({ projectSlug }: { projectSlug
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await fetch(`/api/projects/${encodeURIComponent(projectSlug)}/annual-fund-definitions`);
+    const res = await fetch('/api/annual-fund-definitions');
     const payload = await res.json().catch(() => ({}));
     if (!res.ok) {
       toast.error(payload.error || 'Failed to load fund definitions');
@@ -48,7 +48,7 @@ export function ProjectAnnualFundDefinitionsPanel({ projectSlug }: { projectSlug
     }
     setRows(payload.definitions || []);
     setLoading(false);
-  }, [projectSlug]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -67,7 +67,7 @@ export function ProjectAnnualFundDefinitionsPanel({ projectSlug }: { projectSlug
       sort_order: (rows?.length ?? 0),
     };
     if (newTo.trim() !== '') body.valid_to = newTo.trim();
-    const res = await fetch(`/api/projects/${encodeURIComponent(projectSlug)}/annual-fund-definitions`, {
+    const res = await fetch('/api/annual-fund-definitions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -99,7 +99,7 @@ export function ProjectAnnualFundDefinitionsPanel({ projectSlug }: { projectSlug
       grant_year: draft.grant_year,
     };
     const res = await fetch(
-      `/api/projects/${encodeURIComponent(projectSlug)}/annual-fund-definitions/${encodeURIComponent(row.id)}`,
+      `/api/annual-fund-definitions/${encodeURIComponent(row.id)}`,
       { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     );
     const payload = await res.json().catch(() => ({}));
@@ -117,7 +117,7 @@ export function ProjectAnnualFundDefinitionsPanel({ projectSlug }: { projectSlug
   async function deleteRow(id: string) {
     if (!window.confirm('Delete this fund definition? Member grants that pointed to it lose the link.')) return;
     const res = await fetch(
-      `/api/projects/${encodeURIComponent(projectSlug)}/annual-fund-definitions/${encodeURIComponent(id)}`,
+      `/api/annual-fund-definitions/${encodeURIComponent(id)}`,
       { method: 'DELETE' }
     );
     const payload = await res.json().catch(() => ({}));
@@ -142,14 +142,14 @@ export function ProjectAnnualFundDefinitionsPanel({ projectSlug }: { projectSlug
   return (
     <div className="space-y-4 rounded-lg border border-border bg-muted/15 p-4">
       <div>
-        <h3 className="text-sm font-semibold text-foreground">Annual fund definitions (project-wide)</h3>
+        <h3 className="text-sm font-semibold text-foreground">Annual fund definitions (global)</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Create reusable funds (name + validity) here. On <strong>Manage members</strong>, each person
-          picks one definition for their <strong>legacy</strong> annual pool — only the annual total is
-          edited per member; dates and label follow the selected fund.
+          These templates are <strong>shared across all projects</strong>. Members pick one for their legacy annual
+          pool on <strong>Manage members</strong>; only the day count is edited per person there. Dates and label
+          follow the selected template.
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Editing a definition updates every grant still linked to it (same label and dates everywhere).
+          Editing a template updates every entitlement grant still linked to it in every project.
         </p>
       </div>
 

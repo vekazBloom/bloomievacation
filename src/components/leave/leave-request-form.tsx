@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { format } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
+import { fundPeriodLabelForAnchor, fundSourceShortLabel } from '@/lib/leave/fund-period-label';
 import { projectPath } from '@/lib/projects/paths';
 
 type AnnualGrantPreview = {
@@ -29,6 +31,20 @@ type PreviewState = {
   annualGrantRowCount: number;
 } | null;
 
+type GrantRow = {
+  id: string;
+  label: string;
+  grant_year: number | null;
+  valid_from: string;
+  valid_to: string | null;
+  source: string;
+  days_allocated: number;
+};
+
+function todayIso(): string {
+  return format(new Date(), 'yyyy-MM-dd');
+}
+
 export function LeaveRequestForm({
   projectId,
   projectSlug,
@@ -46,6 +62,12 @@ export function LeaveRequestForm({
   const [preview, setPreview] = useState<PreviewState>(null);
   const [fundSplit, setFundSplit] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [allGrants, setAllGrants] = useState<GrantRow[] | null>(null);
+  const [selectedGrantId, setSelectedGrantId] = useState<string | null>(null);
+
+  const anchorDate = startDate || todayIso();
+
+  const grantMeta = useMemo(() => new Map(allGrants?.map((g) => [g.id, g]) ?? []), [allGrants]);
 
   const eligibleIdsKey = useMemo(
     () =>
@@ -55,6 +77,32 @@ export function LeaveRequestForm({
         .join(','),
     [preview?.annualGrants?.eligible]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGrants() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const { data, error } = await supabase
+        .from('annual_entitlement_grants')
+        .select('id, label, grant_year, valid_from, valid_to, source, days_allocated')
+        .eq('project_id', projectId)
+        .eq('user_id', user.id)
+        .order('valid_from', { ascending: true });
+      if (cancelled) return;
+      if (error) {
+        setAllGrants([]);
+        return;
+      }
+      setAllGrants((data || []) as GrantRow[]);
+    }
+    void loadGrants();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, supabase]);
 
   useEffect(() => {
     if (!startDate || !endDate) {
@@ -99,6 +147,30 @@ export function LeaveRequestForm({
     }
     setFundSplit(next);
   }, [preview?.workingDays, preview?.annualGrants?.requiresSplit, eligibleIdsKey]);
+
+  useEffect(() => {
+    if (type !== 'annual' || !preview?.annualGrants || preview.annualGrants.requiresSplit) return;
+    const el = preview.annualGrants.eligible;
+    if (el.length === 1) {
+      setSelectedGrantId((prev) => (prev && el.some((x) => x.id === prev) ? prev : el[0].id));
+    } else if (el.length === 0) {
+      setSelectedGrantId(null);
+    }
+  }, [preview, type]);
+
+  function fundOptionLabel(g: GrantRow): string {
+    const period = fundPeriodLabelForAnchor(anchorDate, g.valid_from, g.valid_to);
+    const src = fundSourceShortLabel(g.source);
+    return `${g.label || 'Fund'} [${period} · ${src}]`;
+  }
+
+  function isGrantDisabledForPick(g: GrantRow): boolean {
+    if (!preview?.annualGrants || preview.annualGrants.requiresSplit) return false;
+    const eligible = preview.annualGrants.eligible;
+    if (eligible.length === 0) return true;
+    if (eligible.length >= 2) return false;
+    return !eligible.some((e) => e.id === g.id);
+  }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -154,16 +226,18 @@ export function LeaveRequestForm({
       body.annualAllocations = parts;
     } else if (
       type === 'annual' &&
-      preview?.annualGrants?.eligible?.length === 1 &&
+      preview?.annualGrants &&
       !preview.annualGrants.requiresSplit &&
       preview.workingDays > 0
     ) {
-      body.annualAllocations = [
-        {
-          grantId: preview.annualGrants.eligible[0].id,
-          workingDays: preview.workingDays,
-        },
-      ];
+      const eligible = preview.annualGrants.eligible;
+      if (eligible.length === 1) {
+        const gid =
+          selectedGrantId && eligible.some((e) => e.id === selectedGrantId)
+            ? selectedGrantId
+            : eligible[0].id;
+        body.annualAllocations = [{ grantId: gid, workingDays: preview.workingDays }];
+      }
     }
 
     const response = await fetch('/api/leave-requests', {
@@ -180,6 +254,9 @@ export function LeaveRequestForm({
     router.refresh();
   }
 
+  const showFundDropdown =
+    type === 'annual' && allGrants && allGrants.length > 0 && !preview?.annualGrants?.requiresSplit;
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-2">
@@ -188,7 +265,7 @@ export function LeaveRequestForm({
           id="leave-type"
           value={type}
           onChange={(event) => setType(event.target.value as 'annual' | 'sick')}
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         >
           <option value="annual">Annual leave</option>
           <option value="sick">Sick leave</option>
@@ -205,6 +282,38 @@ export function LeaveRequestForm({
           <Input id="end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
         </div>
       </div>
+
+      {showFundDropdown ? (
+        <div className="space-y-2">
+          <Label htmlFor="annual-fund">Annual fund</Label>
+          <select
+            id="annual-fund"
+            value={
+              preview?.annualGrants &&
+              !preview.annualGrants.requiresSplit &&
+              preview.annualGrants.eligible.length === 1
+                ? selectedGrantId ?? preview.annualGrants.eligible[0].id
+                : selectedGrantId ?? ''
+            }
+            onChange={(e) => setSelectedGrantId(e.target.value === '' ? null : e.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            {preview?.annualGrants?.eligible.length !== 1 ? (
+              <option value="">Select fund…</option>
+            ) : null}
+            {(allGrants || []).map((g) => (
+              <option key={g.id} value={g.id} disabled={isGrantDisabledForPick(g)}>
+                {fundOptionLabel(g)}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            <strong>Active</strong> = covers your start date; <strong>Future</strong> = fund starts after that date;{' '}
+            <strong>Past</strong> = fund already ended before that date. Only funds that cover the start date can be
+            chosen (labels use {startDate ? 'your start date' : 'today'} until you pick dates).
+          </p>
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         <Label htmlFor="reason">Reason</Label>
@@ -257,36 +366,41 @@ export function LeaveRequestForm({
                     More than one fund is valid on the start date. Enter how many working days to take from each
                     fund (must sum to {preview.workingDays}).
                   </p>
-                  {preview.annualGrants.eligible.map((g) => (
-                    <div key={g.id} className="flex flex-wrap items-end gap-3">
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <Label htmlFor={`fund-${g.id}`} className="text-xs font-normal text-muted-foreground">
-                          {g.label || 'Fund'}
-                          {g.grant_year != null ? ` (${g.grant_year})` : ''} — up to {g.remaining.toFixed(1)} d left
-                        </Label>
-                        <Input
-                          id={`fund-${g.id}`}
-                          type="number"
-                          step="0.1"
-                          min={0.1}
-                          value={fundSplit[g.id] ?? ''}
-                          onChange={(e) => setFundSplit((prev) => ({ ...prev, [g.id]: e.target.value }))}
-                        />
+                  {preview.annualGrants.eligible.map((g) => {
+                    const meta = grantMeta.get(g.id);
+                    const period = fundPeriodLabelForAnchor(startDate || todayIso(), g.valid_from, g.valid_to);
+                    const src = meta ? fundSourceShortLabel(meta.source) : 'Fund';
+                    return (
+                      <div key={g.id} className="flex flex-wrap items-end gap-3">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <Label htmlFor={`fund-${g.id}`} className="text-xs font-normal text-muted-foreground">
+                            {g.label || 'Fund'}
+                            {g.grant_year != null ? ` (${g.grant_year})` : ''}{' '}
+                            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+                              {period} · {src}
+                            </span>{' '}
+                            — up to {g.remaining.toFixed(1)} d left
+                          </Label>
+                          <Input
+                            id={`fund-${g.id}`}
+                            type="number"
+                            step="0.1"
+                            min={0.1}
+                            value={fundSplit[g.id] ?? ''}
+                            onChange={(e) => setFundSplit((prev) => ({ ...prev, [g.id]: e.target.value }))}
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="space-y-2 border-t border-border pt-3">
-                  <p className="font-medium">Annual fund for this request</p>
-                  {preview.annualGrants.eligible.map((g) => (
-                    <p key={g.id} className="text-sm text-muted-foreground">
-                      <span className="font-medium text-foreground">{g.label || 'Fund'}</span>
-                      {g.grant_year != null ? ` · year ${g.grant_year}` : ''} —{' '}
-                      <strong>{preview.workingDays}</strong> working day(s) will be booked from this fund.
-                      Remaining before this request: {g.remaining.toFixed(1)}.
-                    </p>
-                  ))}
+                  <p className="font-medium">Booking summary</p>
+                  <p className="text-sm text-muted-foreground">
+                    <strong>{preview.workingDays}</strong> working day(s) will be booked from the fund you selected
+                    above (must be <strong>Active</strong> for your start date).
+                  </p>
                 </div>
               )}
             </>

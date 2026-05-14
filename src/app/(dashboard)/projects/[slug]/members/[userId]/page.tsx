@@ -1,13 +1,9 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
-import { LeaveRequestsPanel } from '@/components/leave/leave-requests-panel';
-import { MemberFundsPanel, type MemberFundAllocationLine, type MemberFundGrant } from '@/components/projects/member-funds-panel';
-import { MemberProfileTabs } from '@/components/projects/member-profile-tabs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
+import { MemberProfileCardWithTabs } from '@/components/projects/member-profile-card-with-tabs';
+import type { MemberFundAllocationLine, MemberFundGrant } from '@/components/projects/member-funds-panel';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { fetchApprovedUsageGloballyForUser } from '@/lib/leave/approved-usage-from-requests';
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
@@ -15,7 +11,6 @@ import { canReviewLeaveForRole } from '@/lib/projects/access';
 import { formatRoleLabel } from '@/lib/email/format';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
-import { getInitials } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +40,7 @@ export default async function ProjectMemberProfilePage({
   const { data: membership } = await supabase
     .from('project_members')
     .select(
-      'role, annual_leave_total, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(id, name, email, avatar_url)'
+      'role, annual_leave_total, annual_leave_carried_over, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(id, name, email, avatar_url)'
     )
     .eq('project_id', projectId)
     .eq('user_id', params.userId)
@@ -59,7 +54,13 @@ export default async function ProjectMemberProfilePage({
   ).users;
   if (!memberUser) notFound();
 
-  const [{ data: requests }, approvedUsage, { data: grantRows }, { data: defRows }] = await Promise.all([
+  const [
+    { data: requests },
+    approvedUsage,
+    { data: grantRows },
+    { data: defRows },
+    { data: projectApprovedRows },
+  ] = await Promise.all([
     supabase
       .from('leave_requests')
       .select(leaveRequestWithUserSelect)
@@ -73,8 +74,28 @@ export default async function ProjectMemberProfilePage({
       .eq('project_id', projectId)
       .eq('user_id', params.userId)
       .order('valid_from', { ascending: true }),
-    supabase.from('project_annual_fund_definitions').select('id, label').eq('project_id', projectId),
+    supabase
+      .from('annual_fund_definitions')
+      .select('id, label')
+      .order('sort_order', { ascending: true })
+      .order('label', { ascending: true }),
+    supabase
+      .from('leave_requests')
+      .select('type, working_days_count')
+      .eq('project_id', projectId)
+      .eq('user_id', params.userId)
+      .eq('status', 'approved'),
   ]);
+
+  const approvedInProject = { annual: 0, sick: 0, religious: 0 };
+  for (const r of projectApprovedRows || []) {
+    const t = r.type as string;
+    const d = Number(r.working_days_count ?? 0);
+    if (!Number.isFinite(d)) continue;
+    if (t === 'annual') approvedInProject.annual += d;
+    else if (t === 'sick') approvedInProject.sick += d;
+    else if (t === 'religious') approvedInProject.religious += d;
+  }
 
   const defLabelMap = new Map((defRows || []).map((d) => [d.id as string, d.label as string]));
 
@@ -130,6 +151,12 @@ export default async function ProjectMemberProfilePage({
 
   const canReview = canReviewLeaveForRole(profile.is_system_admin, viewerMembership.role);
 
+  const carried = Number(
+    (membership as { annual_leave_carried_over?: number | null }).annual_leave_carried_over ?? 0
+  );
+  const annualProjectPool =
+    Number((membership as { annual_leave_total?: number | null }).annual_leave_total ?? 0) + carried;
+
   return (
     <div className="mx-auto max-w-5xl space-y-6 animate-fade-in">
       <div className="flex items-center gap-3">
@@ -144,83 +171,25 @@ export default async function ProjectMemberProfilePage({
         </div>
       </div>
 
-      <Card>
-        <CardContent className="flex flex-wrap items-start gap-5 p-6">
-          <Avatar className="h-16 w-16">
-            {memberUser.avatar_url ? (
-              <AvatarImage src={memberUser.avatar_url} alt={memberUser.name} />
-            ) : null}
-            <AvatarFallback>{getInitials(memberUser.name)}</AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="font-mono uppercase">
-                {formatRoleLabel(membership.role)}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">{memberUser.email}</p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-lg border border-border px-4 py-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Annual</p>
-                <p className="mt-1 font-mono text-lg tabular-nums">
-                  {approvedUsage.annual} / {membership.annual_leave_total}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border px-4 py-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Sick</p>
-                <p className="mt-1 font-mono text-lg tabular-nums">
-                  {approvedUsage.sick} / {membership.sick_leave_total}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border px-4 py-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Religious</p>
-                <p className="mt-1 font-mono text-lg tabular-nums">
-                  {approvedUsage.religious} / {membership.religious_leave_total}
-                </p>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              &quot;Used&quot; sums approved days from every project you belong to; the allowance shown is
-              this team&apos;s allocation.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <MemberProfileTabs
-        leaveLabel="Leave history"
-        fundsLabel="Annual funds"
-        leaveContent={
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="font-display text-xl">Leave history</h2>
-              <Button asChild variant="outline" size="sm">
-                <Link href={projectPath(project.slug, 'calendar')}>Open team calendar</Link>
-              </Button>
-            </div>
-            <LeaveRequestsPanel
-              requests={requests || []}
-              canReview={canReview}
-              projectSlug={project.slug}
-              currentUserId={user.id}
-            />
-          </div>
-        }
-        fundsContent={
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-display text-xl">Annual funds</h2>
-              <Button asChild variant="outline" size="sm">
-                <Link href={projectPath(project.slug, 'requests', 'new')}>New leave request</Link>
-              </Button>
-            </div>
-            <MemberFundsPanel
-              projectSlug={project.slug}
-              grants={memberFundsGrants}
-              allocationLines={memberFundAllocationLines}
-            />
-          </div>
-        }
+      <MemberProfileCardWithTabs
+        projectSlug={project.slug}
+        memberName={memberUser.name}
+        memberEmail={memberUser.email}
+        avatarUrl={memberUser.avatar_url ?? null}
+        roleLabel={formatRoleLabel(membership.role)}
+        annualGlobalApproved={approvedUsage.annual}
+        annualProjectPool={annualProjectPool}
+        sickGlobalApproved={approvedUsage.sick}
+        sickProjectTotal={Number(membership.sick_leave_total ?? 0)}
+        religiousGlobalApproved={approvedUsage.religious}
+        religiousProjectTotal={Number(membership.religious_leave_total ?? 0)}
+        sickProjectApproved={approvedInProject.sick}
+        religiousProjectApproved={approvedInProject.religious}
+        grants={memberFundsGrants}
+        allocationLines={memberFundAllocationLines}
+        requests={requests || []}
+        canReview={canReview}
+        currentUserId={user.id}
       />
     </div>
   );
