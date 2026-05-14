@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -24,22 +24,33 @@ type MemberRow = {
   };
 };
 
+export type AnnualFundDefinitionOption = { id: string; label: string };
+
 export function MemberManagerRow({
   projectSlug,
   member,
   otherProjects = [],
+  fundDefinitions = [],
+  legacyDefinitionId = null,
 }: {
   projectSlug: string;
   member: MemberRow;
   otherProjects?: Array<{ slug: string; name: string }>;
+  fundDefinitions?: AnnualFundDefinitionOption[];
+  legacyDefinitionId?: string | null;
 }) {
   const router = useRouter();
   const [role, setRole] = useState(member.role);
   const [annualTotal, setAnnualTotal] = useState(String(member.annual_leave_total));
   const [sickTotal, setSickTotal] = useState(String(member.sick_leave_total));
   const [religiousTotal, setReligiousTotal] = useState(String(member.religious_leave_total));
+  const [fundDefId, setFundDefId] = useState<string>(legacyDefinitionId ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    setFundDefId(legacyDefinitionId ?? '');
+  }, [legacyDefinitionId, member.id]);
 
   async function saveChanges() {
     setIsSaving(true);
@@ -51,6 +62,7 @@ export function MemberManagerRow({
         annual_leave_total: Number(annualTotal),
         sick_leave_total: Number(sickTotal),
         religious_leave_total: Number(religiousTotal),
+        annual_fund_definition_id: fundDefId === '' ? null : fundDefId,
       }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -85,7 +97,7 @@ export function MemberManagerRow({
   }
 
   return (
-    <div className="grid gap-4 border-b border-border px-6 py-4 lg:grid-cols-[minmax(0,1.2fr)_repeat(4,minmax(0,0.6fr))_auto] lg:items-end">
+    <div className="grid gap-4 border-b border-border px-6 py-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.5fr)_minmax(0,0.95fr)_repeat(3,minmax(0,0.52fr))_auto] lg:items-end">
       <div>
         <Link
           href={projectPath(projectSlug, 'members', member.users.id)}
@@ -132,6 +144,25 @@ export function MemberManagerRow({
           <option value="lead">Lead</option>
           <option value="admin">Admin</option>
         </select>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs text-muted-foreground">Annual fund (legacy)</label>
+        <select
+          value={fundDefId}
+          onChange={(event) => setFundDefId(event.target.value)}
+          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+        >
+          <option value="">Not linked</option>
+          {fundDefinitions.map((def) => (
+            <option key={def.id} value={def.id}>
+              {def.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Name and validity follow the definition from project settings.
+        </p>
       </div>
 
       <div className="space-y-1">

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import { ProjectAnnualFundDefinitionsPanel } from '@/components/projects/project-annual-fund-definitions-panel';
 import { ProjectAnnualGrantsOverview } from '@/components/projects/project-annual-grants-overview';
 import { ProjectAnnualPolicyMilestones } from '@/components/projects/project-annual-policy-milestones';
 import type { Database } from '@/types/database.generated';
@@ -241,13 +242,18 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
         />
 
         <div className="space-y-2 border-t border-border pt-4">
-          <h3 className="text-sm font-semibold text-foreground">Team annual funds (active & upcoming)</h3>
+          <ProjectAnnualFundDefinitionsPanel projectSlug={project.slug} />
+        </div>
+
+        <div className="space-y-2 border-t border-border pt-4">
+          <h3 className="text-sm font-semibold text-foreground">Team annual funds (read-only)</h3>
           <p className="text-xs text-muted-foreground">
-            All entitlement rows for the team (active, upcoming, ended). Use <strong>Edit</strong> to rename
-            a fund, change validity, grant year, or allocated days (non-legacy). Legacy pool size follows
-            member totals on Members.
+            All entitlement rows for the team (active, upcoming, ended). Create and edit reusable fund
+            definitions above; on <strong>Manage members</strong>, each person links their legacy annual pool
+            to a definition. Legacy <strong>allocated</strong> days stay in sync with member annual totals;
+            other grant types are managed by the year-reset job.
           </p>
-          <ProjectAnnualGrantsOverview projectId={project.id} projectSlug={project.slug} />
+          <ProjectAnnualGrantsOverview projectId={project.id} />
         </div>
 
         <div className="flex flex-wrap gap-3">

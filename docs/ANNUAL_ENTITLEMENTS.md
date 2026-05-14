@@ -6,8 +6,15 @@ This app models **annual leave** as one or more **entitlement grants** per proje
 - **`days_allocated`**: how many working days that pool may fund.
 - **`valid_from` / `valid_to`**: the window in which the **start date** of a request may draw from that pool (inclusive date strings, `YYYY-MM-DD`).
 - **`source`**: `legacy_migration` (pre-feature backfill), `grant` (opened by the year-reset job), or `carryover` (reserved for future use).
+- **`definition_id`** (optional): links a grant to a **`project_annual_fund_definitions`** row so label and validity can be maintained project-wide.
 
 When a member requests annual leave, the API stores **`leave_request_grant_allocations`**: rows `(leave_request_id, grant_id, working_days)` so consumption is tracked **per fund**. Pending and approved allocations both reserve balance.
+
+## Project-wide fund definitions
+
+Table **`project_annual_fund_definitions`** holds reusable templates (label, optional grant year, `valid_from` / `valid_to`, sort order). Project admins manage them under **Project settings** (API: `GET/POST /api/projects/[slug]/annual-fund-definitions`, `PATCH/DELETE …/[definitionId]`). Updating a definition propagates label and dates to every **`annual_entitlement_grants`** row that still references it.
+
+On **Manage members**, each member’s **legacy** annual pool is assigned with a **dropdown** (`annual_fund_definition_id` on `PATCH …/members/[memberId]`). That copies the definition’s metadata onto the legacy grant and sets `definition_id`. **Allocated** days on the legacy grant stay driven by the member’s annual totals on the same page; the definition does not override the day count.
 
 ## Project policy fields
 
@@ -36,12 +43,16 @@ On **`projects`**:
 ## Where this appears in the app
 
 - **Project overview** (main project page): shows the **next** calendar occurrence of the configured year-reset and accrual month/day, with a day countdown.
-- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields, plus a **Team annual funds** table (all rows: active, upcoming, ended). Use **Edit** on a row to change **label** (fund name shown in the Fund column), **`valid_from` / `valid_to`**, optional **`grant_year`**, and **`days_allocated`** (non-legacy only). This calls `PATCH /api/projects/[slug]/annual-grants/[grantId]` (project admin). **Legacy** rows: `days_allocated` stays in sync with the member’s annual totals on **Members** — only rename and validity (and optional year) are editable from settings; do not delete legacy rows from the app.
-
-- **Deleting a fund**: `DELETE` on the same route is allowed for **non-legacy** grants only when there are **no** `leave_request_grant_allocations` referencing that grant.
+- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields; **Annual fund definitions** to create/edit project-wide funds; and a **Team annual funds** table (read-only) listing all entitlement rows with integer-style display for allocated days when whole.
+- **Manage members**: role, **annual fund** (legacy link to a definition), and leave totals. Saving applies the selected definition to the member’s legacy grant when changed.
 
 These UI elements follow the same calendar rules as this document. The automated year-reset **job** still runs only on the configured reset date (`year_reset_month` / `year_reset_day`).
 
 ## Migrations
 
-Apply `supabase/migrations/012_annual_entitlement_grants.sql` so tables and project columns exist before deploying app code that references them.
+Apply migrations in order, including:
+
+- `supabase/migrations/012_annual_entitlement_grants.sql` — grants and project columns.
+- `supabase/migrations/013_project_annual_fund_definitions.sql` — definitions table and `definition_id` on grants.
+
+Deploy app code that references definitions only after **013** is applied.

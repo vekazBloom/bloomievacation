@@ -40,6 +40,32 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
     )
     .eq('project_id', projectId);
 
+  const { data: fundDefRows } = await supabase
+    .from('project_annual_fund_definitions')
+    .select('id, label')
+    .eq('project_id', projectId)
+    .order('sort_order', { ascending: true })
+    .order('label', { ascending: true });
+
+  const { data: legacyGrantRows } = await supabase
+    .from('annual_entitlement_grants')
+    .select('user_id, definition_id')
+    .eq('project_id', projectId)
+    .eq('source', 'legacy_migration');
+
+  const legacyDefinitionByUserId = (legacyGrantRows || []).reduce(
+    (acc, row) => {
+      const uid = row.user_id as string;
+      if (uid) acc.set(uid, row.definition_id as string | null);
+      return acc;
+    },
+    new Map<string, string | null>()
+  );
+
+  const fundDefinitions = (fundDefRows || []).map((r) => ({
+    id: r.id as string,
+    label: r.label as string,
+  }));
   const memberUserIds = (members || [])
     .map((member: any) => member.users?.id as string | undefined)
     .filter((id): id is string => Boolean(id));
@@ -147,6 +173,8 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
               projectSlug={project.slug}
               member={member}
               otherProjects={otherProjectsByUser.get(member.users?.id) || []}
+              fundDefinitions={fundDefinitions}
+              legacyDefinitionId={legacyDefinitionByUserId.get(member.users?.id) ?? null}
             />
           ))}
         </CardContent>

@@ -330,6 +330,7 @@ export type Database = {
         Row: {
           created_at: string
           days_allocated: number
+          definition_id: string | null
           grant_year: number | null
           id: string
           label: string
@@ -343,6 +344,7 @@ export type Database = {
         Insert: {
           created_at?: string
           days_allocated: number
+          definition_id?: string | null
           grant_year?: number | null
           id?: string
           label?: string
@@ -356,6 +358,7 @@ export type Database = {
         Update: {
           created_at?: string
           days_allocated?: number
+          definition_id?: string | null
           grant_year?: number | null
           id?: string
           label?: string
@@ -367,6 +370,13 @@ export type Database = {
           valid_to?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "annual_entitlement_grants_definition_id_fkey"
+            columns: ["definition_id"]
+            isOneToOne: false
+            referencedRelation: "project_annual_fund_definitions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "annual_entitlement_grants_project_id_fkey"
             columns: ["project_id"]
@@ -418,6 +428,50 @@ export type Database = {
             columns: ["leave_request_id"]
             isOneToOne: false
             referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_annual_fund_definitions: {
+        Row: {
+          created_at: string
+          grant_year: number | null
+          id: string
+          label: string
+          project_id: string
+          sort_order: number
+          updated_at: string
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          created_at?: string
+          grant_year?: number | null
+          id?: string
+          label: string
+          project_id: string
+          sort_order?: number
+          updated_at?: string
+          valid_from: string
+          valid_to?: string | null
+        }
+        Update: {
+          created_at?: string
+          grant_year?: number | null
+          id?: string
+          label?: string
+          project_id?: string
+          sort_order?: number
+          updated_at?: string
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_annual_fund_definitions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
