@@ -15,8 +15,20 @@ export function getInitials(name: string): string {
     .toUpperCase();
 }
 
+/** Parses `YYYY-MM-DD` (and ISO strings) as a local calendar date to avoid UTC off-by-one in ranges. */
+export function calendarDateFromInput(input: string | Date): Date {
+  if (typeof input !== 'string') return input;
+  const dayPart = input.split('T')[0] ?? input;
+  const parts = dayPart.split('-').map(Number);
+  const y = parts[0];
+  const m = parts[1];
+  const d = parts[2];
+  if (!y || !m || !d) return new Date(input);
+  return new Date(y, m - 1, d);
+}
+
 export function formatDate(date: string | Date, format: 'short' | 'long' = 'short'): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  const d = calendarDateFromInput(date);
   if (format === 'long') {
     return d.toLocaleDateString('en-US', {
       weekday: 'short',
@@ -33,15 +45,29 @@ export function formatDate(date: string | Date, format: 'short' | 'long' = 'shor
 }
 
 export function formatDateRange(start: string | Date, end: string | Date): string {
-  const s = typeof start === 'string' ? new Date(start) : start;
-  const e = typeof end === 'string' ? new Date(end) : end;
+  const s = calendarDateFromInput(start);
+  const e = calendarDateFromInput(end);
 
-  if (s.toDateString() === e.toDateString()) {
+  if (s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth() && s.getDate() === e.getDate()) {
     return formatDate(s);
   }
 
-  if (s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth()) {
-    return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString('en-US', { day: 'numeric', year: 'numeric' })}`;
+  const yS = s.getFullYear();
+  const yE = e.getFullYear();
+  const mS = s.getMonth();
+  const mE = e.getMonth();
+  const dS = s.getDate();
+  const dE = e.getDate();
+
+  if (yS === yE && mS === mE) {
+    const month = s.toLocaleDateString('en-US', { month: 'short' });
+    return `${month} ${dS} – ${month} ${dE}, ${yS}`;
+  }
+
+  if (yS === yE) {
+    const left = s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const right = e.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${left} – ${right}, ${yS}`;
   }
 
   return `${formatDate(s)} – ${formatDate(e)}`;

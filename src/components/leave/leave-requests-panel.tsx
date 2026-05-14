@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDateRange } from '@/lib/utils';
+import { formatAnnualRequestFundsSummary } from '@/lib/leave/format-annual-request-funds';
 import { projectPath } from '@/lib/projects/paths';
 
 export function LeaveRequestsPanel({
@@ -108,6 +109,11 @@ export function LeaveRequestsPanel({
                       {request.type} · {formatDateRange(request.start_date, request.end_date)} ·{' '}
                       {request.working_days_count} days
                     </p>
+                    {request.type === 'annual' ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {formatAnnualRequestFundsSummary(request.leave_request_grant_allocations)}
+                      </p>
+                    ) : null}
                     {request.reason ? (
                       <p className="mt-1 text-sm text-muted-foreground">{request.reason}</p>
                     ) : null}

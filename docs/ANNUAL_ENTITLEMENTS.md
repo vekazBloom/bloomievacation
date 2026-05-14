@@ -57,5 +57,6 @@ Apply migrations in order, including:
 - `supabase/migrations/012_annual_entitlement_grants.sql` — grants and project columns.
 - `supabase/migrations/013_project_annual_fund_definitions.sql` — original per-project definitions table and `definition_id` on grants.
 - `supabase/migrations/014_global_annual_fund_definitions.sql` — migrates to **`annual_fund_definitions`** (no `project_id`), repoints `definition_id`, drops **`project_annual_fund_definitions`**.
+- `supabase/migrations/015_backfill_missing_annual_grant_allocations.sql` — inserts missing **`leave_request_grant_allocations`** for annual requests (single eligible grant on start date, else legacy pool, else latest grant by `valid_from`).
 
 Deploy app code that references **`annual_fund_definitions`** and the global API only after **014** is applied (after **013** on fresh installs).

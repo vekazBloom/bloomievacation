@@ -9,8 +9,9 @@ import { formatEmailDate, formatLeaveTypeLabel } from '@/lib/email/format';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
-import { leaveRequestUserEmbed } from '@/lib/leave/queries';
+import { leaveRequestUserEmbed, leaveRequestGrantAllocationsEmbed } from '@/lib/leave/queries';
 import { formatDateRange } from '@/lib/utils';
+import { formatAnnualRequestFundsSummary, type RequestAllocationRow } from '@/lib/leave/format-annual-request-funds';
 
 function statusBadgeVariant(status: string) {
   if (status === 'approved') return 'success' as const;
@@ -43,7 +44,7 @@ export default async function ProjectRequestDetailsPage({
   const { data: request } = await supabase
     .from('leave_requests')
     .select(
-      `id, user_id, type, status, start_date, end_date, reason, decision_note, created_at, working_days_count, ${leaveRequestUserEmbed}(name, email)`
+      `id, user_id, type, status, start_date, end_date, reason, decision_note, created_at, working_days_count, ${leaveRequestUserEmbed}(name, email), ${leaveRequestGrantAllocationsEmbed}`
     )
     .eq('id', params.requestId)
     .eq('project_id', project.id)
@@ -101,6 +102,18 @@ export default async function ProjectRequestDetailsPage({
               </p>
             </div>
           </div>
+
+          {request.type === 'annual' ? (
+            <div className="rounded-lg border border-border p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Annual funds</p>
+              <p className="mt-1 font-medium">
+                {formatAnnualRequestFundsSummary(
+                  (request as { leave_request_grant_allocations?: RequestAllocationRow[] | null })
+                    .leave_request_grant_allocations
+                )}
+              </p>
+            </div>
+          ) : null}
 
           {request.reason ? (
             <div className="rounded-lg border border-border p-4">
