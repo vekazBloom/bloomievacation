@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAnnualGrantSplitHints } from '@/lib/leave/entitlement-grants';
+import { fetchAnnualGrantSplitHints, fetchGrantsForMember } from '@/lib/leave/entitlement-grants';
 import { getCurrentUser } from '@/lib/projects/access';
 
 export async function GET(request: NextRequest) {
@@ -47,7 +47,10 @@ export async function GET(request: NextRequest) {
     totalMembers > 0 ? Math.round((overlappingMembers / totalMembers) * 100) : 0;
 
   let annualGrants: Awaited<ReturnType<typeof fetchAnnualGrantSplitHints>> | null = null;
+  let annualGrantRowCount = 0;
   if (leaveType === 'annual' && startDate) {
+    const grants = await fetchGrantsForMember(supabase, projectId, user.id);
+    annualGrantRowCount = grants.length;
     annualGrants = await fetchAnnualGrantSplitHints(supabase, projectId, user.id, startDate);
   }
 
@@ -61,5 +64,6 @@ export async function GET(request: NextRequest) {
       exceedsThreshold: overlapPercent >= thresholdPercent,
     },
     annualGrants,
+    annualGrantRowCount,
   });
 }

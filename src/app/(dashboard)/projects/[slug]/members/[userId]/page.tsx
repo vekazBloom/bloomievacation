@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { LeaveRequestsPanel } from '@/components/leave/leave-requests-panel';
+import { MemberFundsPanel, type MemberFundAllocationLine, type MemberFundGrant } from '@/components/projects/member-funds-panel';
+import { MemberProfileTabs } from '@/components/projects/member-profile-tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,7 +59,7 @@ export default async function ProjectMemberProfilePage({
   ).users;
   if (!memberUser) notFound();
 
-  const [{ data: requests }, approvedUsage] = await Promise.all([
+  const [{ data: requests }, approvedUsage, { data: grantRows }, { data: defRows }] = await Promise.all([
     supabase
       .from('leave_requests')
       .select(leaveRequestWithUserSelect)
@@ -65,7 +67,66 @@ export default async function ProjectMemberProfilePage({
       .eq('user_id', params.userId)
       .order('created_at', { ascending: false }),
     fetchApprovedUsageGloballyForUser(supabase, params.userId),
+    supabase
+      .from('annual_entitlement_grants')
+      .select('id, label, grant_year, days_allocated, valid_from, valid_to, source, definition_id')
+      .eq('project_id', projectId)
+      .eq('user_id', params.userId)
+      .order('valid_from', { ascending: true }),
+    supabase.from('project_annual_fund_definitions').select('id, label').eq('project_id', projectId),
   ]);
+
+  const defLabelMap = new Map((defRows || []).map((d) => [d.id as string, d.label as string]));
+
+  const memberFundsGrants: MemberFundGrant[] = (grantRows || []).map((row) => ({
+    id: row.id as string,
+    label: (row.label as string) || 'Fund',
+    grant_year: (row.grant_year as number | null) ?? null,
+    valid_from: row.valid_from as string,
+    valid_to: (row.valid_to as string | null) ?? null,
+    source: row.source as string,
+    days_allocated: Number(row.days_allocated ?? 0),
+    definition_label: row.definition_id ? defLabelMap.get(row.definition_id as string) ?? null : null,
+  }));
+
+  const grantIds = memberFundsGrants.map((g) => g.id);
+  let memberFundAllocationLines: MemberFundAllocationLine[] = [];
+
+  if (grantIds.length > 0) {
+    const { data: allocRows } = await supabase
+      .from('leave_request_grant_allocations')
+      .select('grant_id, working_days, leave_request_id')
+      .in('grant_id', grantIds);
+
+    const reqIds = [...new Set((allocRows || []).map((a) => a.leave_request_id as string).filter(Boolean))];
+    if (reqIds.length > 0) {
+      const { data: reqRows } = await supabase
+        .from('leave_requests')
+        .select('id, status, start_date, end_date, created_at, user_id, project_id, type')
+        .in('id', reqIds)
+        .eq('project_id', projectId)
+        .eq('user_id', params.userId)
+        .eq('type', 'annual');
+
+      const reqById = new Map((reqRows || []).map((r) => [r.id as string, r]));
+
+      memberFundAllocationLines = (allocRows || [])
+        .map((a) => {
+          const lr = reqById.get(a.leave_request_id as string);
+          if (!lr) return null;
+          return {
+            grant_id: a.grant_id as string,
+            working_days: Number(a.working_days ?? 0),
+            request_id: lr.id as string,
+            status: lr.status as string,
+            start_date: lr.start_date as string,
+            end_date: lr.end_date as string,
+            created_at: lr.created_at as string,
+          };
+        })
+        .filter((x): x is MemberFundAllocationLine => x != null);
+    }
+  }
 
   const canReview = canReviewLeaveForRole(profile.is_system_admin, viewerMembership.role);
 
@@ -126,20 +187,41 @@ export default async function ProjectMemberProfilePage({
         </CardContent>
       </Card>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="font-display text-xl">Leave history</h2>
-          <Button asChild variant="outline" size="sm">
-            <Link href={projectPath(project.slug, 'calendar')}>Open team calendar</Link>
-          </Button>
-        </div>
-        <LeaveRequestsPanel
-          requests={requests || []}
-          canReview={canReview}
-          projectSlug={project.slug}
-          currentUserId={user.id}
-        />
-      </div>
+      <MemberProfileTabs
+        leaveLabel="Leave history"
+        fundsLabel="Annual funds"
+        leaveContent={
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-display text-xl">Leave history</h2>
+              <Button asChild variant="outline" size="sm">
+                <Link href={projectPath(project.slug, 'calendar')}>Open team calendar</Link>
+              </Button>
+            </div>
+            <LeaveRequestsPanel
+              requests={requests || []}
+              canReview={canReview}
+              projectSlug={project.slug}
+              currentUserId={user.id}
+            />
+          </div>
+        }
+        fundsContent={
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-xl">Annual funds</h2>
+              <Button asChild variant="outline" size="sm">
+                <Link href={projectPath(project.slug, 'requests', 'new')}>New leave request</Link>
+              </Button>
+            </div>
+            <MemberFundsPanel
+              projectSlug={project.slug}
+              grants={memberFundsGrants}
+              allocationLines={memberFundAllocationLines}
+            />
+          </div>
+        }
+      />
     </div>
   );
 }

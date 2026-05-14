@@ -26,6 +26,7 @@ type PreviewState = {
   exceedsThreshold: boolean;
   overlappingMembers: number;
   annualGrants: AnnualGrantPreview | null;
+  annualGrantRowCount: number;
 } | null;
 
 export function LeaveRequestForm({
@@ -73,6 +74,7 @@ export function LeaveRequestForm({
         exceedsThreshold: payload.overlap?.exceedsThreshold,
         overlappingMembers: payload.overlap?.overlappingMembers,
         annualGrants: payload.annualGrants ?? null,
+        annualGrantRowCount: Number(payload.annualGrantRowCount) || 0,
       });
     }, 250);
 
@@ -150,6 +152,18 @@ export function LeaveRequestForm({
         return toast.error('Each fund must use a positive number of days.');
       }
       body.annualAllocations = parts;
+    } else if (
+      type === 'annual' &&
+      preview?.annualGrants?.eligible?.length === 1 &&
+      !preview.annualGrants.requiresSplit &&
+      preview.workingDays > 0
+    ) {
+      body.annualAllocations = [
+        {
+          grantId: preview.annualGrants.eligible[0].id,
+          workingDays: preview.workingDays,
+        },
+      ];
     }
 
     const response = await fetch('/api/leave-requests', {
@@ -218,32 +232,64 @@ export function LeaveRequestForm({
             </p>
           ) : null}
 
-          {type === 'annual' && preview.annualGrants?.requiresSplit ? (
-            <div className="space-y-2 border-t border-border pt-3">
-              <p className="font-medium">Split across annual funds</p>
-              <p className="text-xs text-muted-foreground">
-                More than one fund is valid on the start date. Enter how many working days to take from each
-                fund (must sum to {preview.workingDays}).
-              </p>
-              {preview.annualGrants.eligible.map((g) => (
-                <div key={g.id} className="flex flex-wrap items-end gap-3">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label htmlFor={`fund-${g.id}`} className="text-xs font-normal text-muted-foreground">
-                      {g.label || 'Fund'}
-                      {g.grant_year != null ? ` (${g.grant_year})` : ''} — up to {g.remaining.toFixed(1)} d left
-                    </Label>
-                    <Input
-                      id={`fund-${g.id}`}
-                      type="number"
-                      step="0.1"
-                      min={0.1}
-                      value={fundSplit[g.id] ?? ''}
-                      onChange={(e) => setFundSplit((prev) => ({ ...prev, [g.id]: e.target.value }))}
-                    />
-                  </div>
+          {type === 'annual' && preview.annualGrants ? (
+            <>
+              {(preview.annualGrantRowCount ?? 0) === 0 ? (
+                <div className="space-y-1 border-t border-border pt-3 text-sm text-muted-foreground">
+                  <p className="font-medium text-foreground">Annual allowance</p>
+                  <p>
+                    This project does not use split annual funds yet. Days count against your team annual total
+                    (see your profile).
+                  </p>
                 </div>
-              ))}
-            </div>
+              ) : preview.annualGrants.eligible.length === 0 ? (
+                <div className="space-y-1 border-t border-border pt-3 text-sm text-amber-800 dark:text-amber-200">
+                  <p className="font-medium">No fund covers the first day</p>
+                  <p>
+                    Change the start date or ask an admin to adjust fund validity so an annual pool covers the
+                    first day of leave.
+                  </p>
+                </div>
+              ) : preview.annualGrants.requiresSplit ? (
+                <div className="space-y-2 border-t border-border pt-3">
+                  <p className="font-medium">Split across annual funds</p>
+                  <p className="text-xs text-muted-foreground">
+                    More than one fund is valid on the start date. Enter how many working days to take from each
+                    fund (must sum to {preview.workingDays}).
+                  </p>
+                  {preview.annualGrants.eligible.map((g) => (
+                    <div key={g.id} className="flex flex-wrap items-end gap-3">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <Label htmlFor={`fund-${g.id}`} className="text-xs font-normal text-muted-foreground">
+                          {g.label || 'Fund'}
+                          {g.grant_year != null ? ` (${g.grant_year})` : ''} — up to {g.remaining.toFixed(1)} d left
+                        </Label>
+                        <Input
+                          id={`fund-${g.id}`}
+                          type="number"
+                          step="0.1"
+                          min={0.1}
+                          value={fundSplit[g.id] ?? ''}
+                          onChange={(e) => setFundSplit((prev) => ({ ...prev, [g.id]: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2 border-t border-border pt-3">
+                  <p className="font-medium">Annual fund for this request</p>
+                  {preview.annualGrants.eligible.map((g) => (
+                    <p key={g.id} className="text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">{g.label || 'Fund'}</span>
+                      {g.grant_year != null ? ` · year ${g.grant_year}` : ''} —{' '}
+                      <strong>{preview.workingDays}</strong> working day(s) will be booked from this fund.
+                      Remaining before this request: {g.remaining.toFixed(1)}.
+                    </p>
+                  ))}
+                </div>
+              )}
+            </>
           ) : null}
         </div>
       ) : null}
