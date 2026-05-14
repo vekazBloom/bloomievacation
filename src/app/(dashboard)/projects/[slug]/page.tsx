@@ -10,6 +10,7 @@ import { getDashboardSession } from '@/lib/auth/dashboard';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
+import { formatPolicyDate, milestoneForMonthDay } from '@/lib/leave/annual-policy-dates';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -63,6 +64,18 @@ export default async function ProjectPage({ params }: { params: { slug: string }
 
   const pendingCount = pendingRequests?.length || 0;
 
+  const policyFrom = new Date();
+  const nextPolicyReset = milestoneForMonthDay(
+    Number(project.year_reset_month ?? 1),
+    Number(project.year_reset_day ?? 1),
+    policyFrom
+  );
+  const nextPolicyAccrual = milestoneForMonthDay(
+    Number(project.annual_accrual_month ?? 1),
+    Number(project.annual_accrual_day ?? 1),
+    policyFrom
+  );
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 animate-fade-in">
       {/* Header */}
@@ -102,6 +115,22 @@ export default async function ProjectPage({ params }: { params: { slug: string }
                 Annual accrual: {project.annual_accrual_month ?? 1}/{project.annual_accrual_day ?? 1}
               </span>
               <span>Carry-over: {(project.carry_over_policy ?? 'ask').replace('_', ' ')}</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-foreground/85">
+              <span>
+                Next year reset:{' '}
+                <span className="font-medium">{formatPolicyDate(nextPolicyReset.date)}</span>
+                {nextPolicyReset.daysUntil === 0
+                  ? ' (today)'
+                  : ` (in ${nextPolicyReset.daysUntil} day${nextPolicyReset.daysUntil === 1 ? '' : 's'})`}
+              </span>
+              <span>
+                Next accrual date:{' '}
+                <span className="font-medium">{formatPolicyDate(nextPolicyAccrual.date)}</span>
+                {nextPolicyAccrual.daysUntil === 0
+                  ? ' (today)'
+                  : ` (in ${nextPolicyAccrual.daysUntil} day${nextPolicyAccrual.daysUntil === 1 ? '' : 's'})`}
+              </span>
             </div>
           </div>
         </CardContent>

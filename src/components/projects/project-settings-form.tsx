@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import { ProjectAnnualGrantsOverview } from '@/components/projects/project-annual-grants-overview';
+import { ProjectAnnualPolicyMilestones } from '@/components/projects/project-annual-policy-milestones';
 import type { Database } from '@/types/database.generated';
 import type { CarryOverPolicy } from '@/types/database';
 
@@ -221,6 +223,30 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
               <option value="auto_lose">Auto lose</option>
             </select>
           </div>
+        </div>
+
+        <ProjectAnnualPolicyMilestones
+          yearResetMonth={Number(resetMonth) || 1}
+          yearResetDay={Number(resetDay) || 1}
+          annualAccrualMonth={Number(accrualMonth) || 1}
+          annualAccrualDay={Number(accrualDay) || 1}
+          annualFirstUseByMonth={
+            firstUseMonth.trim() === '' || firstUseDay.trim() === ''
+              ? null
+              : Number(firstUseMonth) || null
+          }
+          annualFirstUseByDay={
+            firstUseMonth.trim() === '' || firstUseDay.trim() === '' ? null : Number(firstUseDay) || null
+          }
+        />
+
+        <div className="space-y-2 border-t border-border pt-4">
+          <h3 className="text-sm font-semibold text-foreground">Team annual funds (active & upcoming)</h3>
+          <p className="text-xs text-muted-foreground">
+            One row per member entitlement pool. “Upcoming” means <code className="text-xs">valid_from</code>{' '}
+            is still in the future; “Active” is the window you can book against today.
+          </p>
+          <ProjectAnnualGrantsOverview projectId={project.id} />
         </div>
 
         <div className="flex flex-wrap gap-3">

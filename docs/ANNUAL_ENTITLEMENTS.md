@@ -33,6 +33,13 @@ On **`projects`**:
 - If any grants exist, annual requests **must** have allocations. When **multiple** grants are valid on the **start date**, the client must send **`annualAllocations`** (see `POST /api/leave-requests` and the leave request form).
 - Triggers on `leave_requests` continue to maintain **`annual_leave_used`** on members; that aggregate should match approved annual working days and is consistent with the sum of allocations on approved requests.
 
+## Where this appears in the app
+
+- **Project overview** (main project page): shows the **next** calendar occurrence of the configured year-reset and accrual month/day, with a day countdown.
+- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields, plus a **Team annual funds** table listing each member’s **active** and **upcoming** grant rows (`valid_from` / `valid_to`, allocated days, status).
+
+These UI elements follow the same calendar rules as this document. The automated year-reset **job** still runs only on the configured reset date (`year_reset_month` / `year_reset_day`).
+
 ## Migrations
 
 Apply `supabase/migrations/012_annual_entitlement_grants.sql` so tables and project columns exist before deploying app code that references them.
