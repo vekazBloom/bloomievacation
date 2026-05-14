@@ -246,14 +246,14 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
         </div>
 
         <div className="space-y-2 border-t border-border pt-4">
-          <h3 className="text-sm font-semibold text-foreground">Team annual funds (read-only)</h3>
+          <h3 className="text-sm font-semibold text-foreground">Team annual funds</h3>
           <p className="text-xs text-muted-foreground">
-            All entitlement rows for the team (active, upcoming, ended). Create and edit reusable fund
-            definitions above; on <strong>Manage members</strong>, each person links their legacy annual pool
-            to a definition. Legacy <strong>allocated</strong> days stay in sync with member annual totals;
-            other grant types are managed by the year-reset job.
+            All entitlement rows for the team (active, upcoming, ended). Use <strong>Edit</strong> to attach a
+            project fund definition and set allocated days per member. Create definitions in the section above.
+            Legacy rows: changing days updates the member&apos;s annual total on <strong>Manage members</strong>{' '}
+            (total + carried over).
           </p>
-          <ProjectAnnualGrantsOverview projectId={project.id} />
+          <ProjectAnnualGrantsOverview projectId={project.id} projectSlug={project.slug} />
         </div>
 
         <div className="flex flex-wrap gap-3">

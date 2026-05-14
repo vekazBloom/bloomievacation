@@ -43,7 +43,7 @@ On **`projects`**:
 ## Where this appears in the app
 
 - **Project overview** (main project page): shows the **next** calendar occurrence of the configured year-reset and accrual month/day, with a day countdown.
-- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields; **Annual fund definitions** to create/edit project-wide funds; and a **Team annual funds** table (read-only) listing all entitlement rows with integer-style display for allocated days when whole.
+- **Project settings** (admins): an **Upcoming** panel recalculates as you edit month/day fields; **Annual fund definitions** to create/edit project-wide funds; and a **Team annual funds** table with **Edit** per row (`PATCH /api/projects/[slug]/annual-grants/[grantId]`) to attach a definition and set **allocated working days** (cannot go below pending+approved allocations). Legacy rows: changing days updates **`project_members.annual_leave_total`** so the pool matches **Manage members** (trigger keeps `days_allocated` in sync).
 - **Manage members**: role, **annual fund** (legacy link to a definition), and leave totals. Saving applies the selected definition to the member’s legacy grant when changed.
 
 These UI elements follow the same calendar rules as this document. The automated year-reset **job** still runs only on the configured reset date (`year_reset_month` / `year_reset_day`).
