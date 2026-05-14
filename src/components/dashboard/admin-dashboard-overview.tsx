@@ -35,7 +35,8 @@ export function AdminDashboardOverview({ profile, projects }: AdminDashboardOver
   const totalAway = projects.reduce((sum, project) => sum + project.awayThisWeekCount, 0);
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+    <div className="space-y-6">
+      <div className="grid gap-6 xl:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
       <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-card via-card to-primary/5">
         <CardContent className="space-y-6 p-6">
           <div className="flex items-start gap-4">
@@ -92,8 +93,6 @@ export function AdminDashboardOverview({ profile, projects }: AdminDashboardOver
               </Link>
             </Button>
           </div>
-
-          <PlatformInviteForm projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
         </CardContent>
       </Card>
 
@@ -208,6 +207,9 @@ export function AdminDashboardOverview({ profile, projects }: AdminDashboardOver
           )}
         </CardContent>
       </Card>
+      </div>
+
+      <PlatformInviteForm projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
     </div>
   );
 }

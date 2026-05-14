@@ -8,12 +8,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 type ProjectOption = { id: string; name: string };
 
 type PlatformInviteFormProps = {
   projects: ProjectOption[];
 };
+
+const selectClassName = cn(
+  'flex h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm',
+  'ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+);
 
 export function PlatformInviteForm({ projects }: PlatformInviteFormProps) {
   const router = useRouter();
@@ -59,17 +65,17 @@ export function PlatformInviteForm({ projects }: PlatformInviteFormProps) {
   }
 
   return (
-    <Card className="border-dashed border-primary/25">
-      <CardContent className="space-y-5 p-6">
-        <div className="space-y-1">
-          <h2 className="font-display text-lg">Invite to platform</h2>
-          <p className="text-sm text-muted-foreground">
-            Send someone access to BloomieVacation without tying them to a project. You can optionally
-            add them to a project and set their team role, or grant system administrator access.
+    <Card className="border border-border shadow-sm">
+      <CardContent className="min-w-0 space-y-6 p-6 sm:p-8">
+        <header className="space-y-2">
+          <h2 className="font-display text-xl font-medium tracking-tight sm:text-2xl">Invite to platform</h2>
+          <p className="max-w-3xl text-pretty text-sm leading-relaxed text-muted-foreground">
+            Send someone access to BloomieVacation without tying them to a project. Optionally add them
+            to a team and set a role, or grant system administrator access.
           </p>
-        </div>
+        </header>
 
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="platform-invite-email">Email</Label>
             <Input
@@ -81,40 +87,44 @@ export function PlatformInviteForm({ projects }: PlatformInviteFormProps) {
               onChange={(e) => setEmail(e.target.value)}
               disabled={isLoading}
               required
+              className="h-11"
             />
           </div>
 
-          <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+          <div className="flex gap-3 rounded-xl border border-border bg-muted/20 px-4 py-4 sm:px-5 sm:py-4">
             <input
               id="platform-invite-sysadmin"
               type="checkbox"
               checked={grantSystemAdmin}
               onChange={(e) => setGrantSystemAdmin(e.target.checked)}
               disabled={isLoading}
-              className="mt-1 h-4 w-4 rounded border-input"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-input"
             />
-            <div className="space-y-0.5">
-              <Label htmlFor="platform-invite-sysadmin" className="cursor-pointer font-medium leading-snug">
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor="platform-invite-sysadmin" className="cursor-pointer text-base font-medium leading-snug">
                 System administrator
               </Label>
-              <p className="text-xs text-muted-foreground">
-                Full access to holidays, all projects, and this invite tool. Leave off for a normal
-                member until they join a team.
+              <p className="text-pretty text-sm leading-relaxed text-muted-foreground">
+                Full access to holidays, all projects, and this invite tool. Leave off for a normal member
+                until they join a team.
               </p>
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="platform-invite-project">Project (optional)</Label>
+          <div className="grid gap-6 sm:grid-cols-2 sm:gap-8">
+            <div className="min-w-0 space-y-2">
+              <div className="space-y-1">
+                <Label htmlFor="platform-invite-project">Project (optional)</Label>
+                <p className="text-xs text-muted-foreground">Skip if they only need an account for now.</p>
+              </div>
               <select
                 id="platform-invite-project"
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value)}
                 disabled={isLoading}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className={selectClassName}
               >
-                <option value="">None — platform access only</option>
+                <option value="">No project</option>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -123,14 +133,21 @@ export function PlatformInviteForm({ projects }: PlatformInviteFormProps) {
               </select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="platform-invite-role">Team role (if project selected)</Label>
+            <div className="min-w-0 space-y-2">
+              <div className="space-y-1">
+                <Label htmlFor="platform-invite-role" className={!projectId ? 'text-muted-foreground' : undefined}>
+                  Team role
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {projectId ? 'Role in the project you selected above.' : 'Select a project to enable this.'}
+                </p>
+              </div>
               <select
                 id="platform-invite-role"
                 value={role}
                 onChange={(e) => setRole(e.target.value as 'employee' | 'lead' | 'admin')}
                 disabled={isLoading || !projectId}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className={cn(selectClassName, !projectId && 'opacity-60')}
               >
                 <option value="employee">Employee</option>
                 <option value="lead">Lead</option>
@@ -139,14 +156,19 @@ export function PlatformInviteForm({ projects }: PlatformInviteFormProps) {
             </div>
           </div>
 
-          <Button type="submit" disabled={isLoading} className="w-full sm:w-auto">
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <UserPlus className="h-4 w-4" />
-            )}
-            Send platform invite
-          </Button>
+          <div className="flex flex-col gap-3 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground sm:max-w-md">
+              They will receive an email with a secure link. Invites expire after seven days.
+            </p>
+            <Button type="submit" disabled={isLoading} size="lg" className="w-full shrink-0 sm:w-auto sm:min-w-[200px]">
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
+              Send platform invite
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>
