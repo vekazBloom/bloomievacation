@@ -19,6 +19,7 @@ export type MemberFundGrant = {
   valid_to: string | null;
   source: string;
   days_allocated: number;
+  definition_id: string | null;
   definition_label: string | null;
 };
 

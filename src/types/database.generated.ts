@@ -643,6 +643,39 @@ export type Database = {
           },
         ]
       }
+      user_annual_fund_definition_assignments: {
+        Row: {
+          created_at: string
+          definition_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          definition_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          definition_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_annual_fund_definition_assignments_definition_id_fkey"
+            columns: ["definition_id"]
+            isOneToOne: false
+            referencedRelation: "annual_fund_definitions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_annual_fund_definition_assignments_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_religious_selections: {
         Row: {
           id: string

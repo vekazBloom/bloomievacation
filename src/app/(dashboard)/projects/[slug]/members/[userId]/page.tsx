@@ -60,6 +60,7 @@ export default async function ProjectMemberProfilePage({
     { data: grantRows },
     { data: defRows },
     { data: projectApprovedRows },
+    { data: templateAssignRows },
   ] = await Promise.all([
     supabase
       .from('leave_requests')
@@ -85,6 +86,10 @@ export default async function ProjectMemberProfilePage({
       .eq('project_id', projectId)
       .eq('user_id', params.userId)
       .eq('status', 'approved'),
+    supabase
+      .from('user_annual_fund_definition_assignments')
+      .select('definition_id')
+      .eq('user_id', params.userId),
   ]);
 
   const approvedInProject = { annual: 0, sick: 0, religious: 0 };
@@ -97,18 +102,28 @@ export default async function ProjectMemberProfilePage({
     else if (t === 'religious') approvedInProject.religious += d;
   }
 
+  const fromAssignments = (templateAssignRows || []).map((r) => r.definition_id as string);
+  const legacyGrantRow = (grantRows || []).find((r) => (r as { source: string }).source === 'legacy_migration');
+  const legacyDefId = (legacyGrantRow as { definition_id?: string | null } | undefined)?.definition_id ?? null;
+  const assignedTemplateIds =
+    fromAssignments.length > 0 ? fromAssignments : legacyDefId ? [legacyDefId] : [];
+
   const defLabelMap = new Map((defRows || []).map((d) => [d.id as string, d.label as string]));
 
-  const memberFundsGrants: MemberFundGrant[] = (grantRows || []).map((row) => ({
-    id: row.id as string,
-    label: (row.label as string) || 'Fund',
-    grant_year: (row.grant_year as number | null) ?? null,
-    valid_from: row.valid_from as string,
-    valid_to: (row.valid_to as string | null) ?? null,
-    source: row.source as string,
-    days_allocated: Number(row.days_allocated ?? 0),
-    definition_label: row.definition_id ? defLabelMap.get(row.definition_id as string) ?? null : null,
-  }));
+  const memberFundsGrants: MemberFundGrant[] = (grantRows || []).map((row) => {
+    const defId = (row.definition_id as string | null) ?? null;
+    return {
+      id: row.id as string,
+      label: (row.label as string) || 'Fund',
+      grant_year: (row.grant_year as number | null) ?? null,
+      valid_from: row.valid_from as string,
+      valid_to: (row.valid_to as string | null) ?? null,
+      source: row.source as string,
+      days_allocated: Number(row.days_allocated ?? 0),
+      definition_id: defId,
+      definition_label: defId ? defLabelMap.get(defId) ?? null : null,
+    };
+  });
 
   const grantIds = memberFundsGrants.map((g) => g.id);
   let memberFundAllocationLines: MemberFundAllocationLine[] = [];
@@ -186,6 +201,7 @@ export default async function ProjectMemberProfilePage({
         sickProjectApproved={approvedInProject.sick}
         religiousProjectApproved={approvedInProject.religious}
         grants={memberFundsGrants}
+        assignedTemplateIds={assignedTemplateIds}
         allocationLines={memberFundAllocationLines}
         requests={requests || []}
         canReview={canReview}

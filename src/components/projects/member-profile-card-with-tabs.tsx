@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { LeaveRequestsPanel } from '@/components/leave/leave-requests-panel';
 import { MemberFundsPanel, type MemberFundAllocationLine, type MemberFundGrant } from '@/components/projects/member-funds-panel';
 import { MemberProfileTabs } from '@/components/projects/member-profile-tabs';
@@ -38,6 +38,7 @@ export function MemberProfileCardWithTabs({
   sickProjectApproved,
   religiousProjectApproved,
   grants,
+  assignedTemplateIds,
   allocationLines,
   requests,
   canReview,
@@ -57,12 +58,31 @@ export function MemberProfileCardWithTabs({
   sickProjectApproved: number;
   religiousProjectApproved: number;
   grants: MemberFundGrant[];
+  /** Global annual fund templates this user is assigned to (cross-project). */
+  assignedTemplateIds: string[];
   allocationLines: MemberFundAllocationLine[];
   requests: any[];
   canReview: boolean;
   currentUserId: string;
 }) {
+  const assignedGrants = useMemo(() => {
+    const set = new Set(assignedTemplateIds.filter(Boolean));
+    if (set.size === 0) return [];
+    return grants.filter((g) => g.definition_id != null && set.has(g.definition_id));
+  }, [grants, assignedTemplateIds]);
+
   const [summaryGrantId, setSummaryGrantId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (assignedGrants.length === 0) {
+      setSummaryGrantId(null);
+      return;
+    }
+    setSummaryGrantId((prev) => {
+      if (prev && assignedGrants.some((g) => g.id === prev)) return prev;
+      return assignedGrants[0].id;
+    });
+  }, [assignedGrants, assignedTemplateIds.join('|')]);
 
   const selectedGrant = useMemo(
     () => (summaryGrantId ? grants.find((g) => g.id === summaryGrantId) ?? null : null),
@@ -70,7 +90,7 @@ export function MemberProfileCardWithTabs({
   );
 
   const annualDisplay = useMemo(() => {
-    if (selectedGrant) {
+    if (selectedGrant && selectedGrant.definition_id) {
       const used = approvedOnGrant(allocationLines, selectedGrant.id);
       const total = Number(selectedGrant.days_allocated || 0);
       return { used, total };
@@ -87,24 +107,49 @@ export function MemberProfileCardWithTabs({
   ]);
 
   const sickDisplay = useMemo(() => {
-    if (summaryGrantId) {
+    if (summaryGrantId && selectedGrant?.definition_id) {
       return { used: sickProjectApproved, total: sickProjectTotal };
     }
     return { used: sickGlobalApproved, total: sickProjectTotal };
-  }, [sickGlobalApproved, sickProjectApproved, sickProjectTotal, summaryGrantId]);
+  }, [
+    sickGlobalApproved,
+    sickProjectApproved,
+    sickProjectTotal,
+    summaryGrantId,
+    selectedGrant?.definition_id,
+  ]);
 
   const religiousDisplay = useMemo(() => {
-    if (summaryGrantId) {
+    if (summaryGrantId && selectedGrant?.definition_id) {
       return { used: religiousProjectApproved, total: religiousProjectTotal };
     }
     return { used: religiousGlobalApproved, total: religiousProjectTotal };
-  }, [religiousGlobalApproved, religiousProjectApproved, religiousProjectTotal, summaryGrantId]);
+  }, [
+    religiousGlobalApproved,
+    religiousProjectApproved,
+    religiousProjectTotal,
+    summaryGrantId,
+    selectedGrant?.definition_id,
+  ]);
 
-  const footnote = summaryGrantId
-    ? selectedGrant
+  function setScopeFromFund(id: string | null) {
+    if (assignedGrants.length === 0) return;
+    if (id !== null && !assignedGrants.some((g) => g.id === id)) {
+      return;
+    }
+    if (id === null) {
+      setSummaryGrantId(assignedGrants[0].id);
+      return;
+    }
+    setSummaryGrantId(id);
+  }
+
+  const footnote =
+    selectedGrant && selectedGrant.definition_id
       ? `Annual shows approved days taken from “${selectedGrant.label}” vs that fund’s pool. Sick and religious show approved days in this project vs this team’s allowance.`
-      : ''
-    : '"Used" sums approved days from every project you belong to; the allowance shown is this team’s allocation.';
+      : assignedGrants.length === 0
+        ? 'Assign an annual fund template on Manage members to scope these numbers to a specific pool. Until then, annual “used” is across all projects; sick and religious use this team’s allowance.'
+        : '';
 
   return (
     <Card>
@@ -122,36 +167,41 @@ export function MemberProfileCardWithTabs({
             </div>
             <p className="text-sm text-muted-foreground">{memberEmail}</p>
 
-            {grants.length > 0 ? (
+            {assignedGrants.length > 1 ? (
               <div className="space-y-1.5">
                 <Label htmlFor="balance-scope" className="text-xs text-muted-foreground">
                   Balance scope
                 </Label>
                 <select
                   id="balance-scope"
-                  value={summaryGrantId ?? ''}
-                  onChange={(e) => setSummaryGrantId(e.target.value === '' ? null : e.target.value)}
+                  value={summaryGrantId ?? assignedGrants[0]?.id ?? ''}
+                  onChange={(e) => setScopeFromFund(e.target.value)}
                   className="flex h-9 max-w-md rounded-md border border-input bg-background px-2 text-sm"
                 >
-                  <option value="">Default — annual “used” across all projects</option>
-                  {grants.map((g) => (
+                  {assignedGrants.map((g) => (
                     <option key={g.id} value={g.id}>
-                      This fund — {g.label}
+                      {g.label}
                       {g.grant_year != null ? ` (${g.grant_year})` : ''}
+                      {g.definition_label ? ` · ${g.definition_label}` : ''}
                     </option>
                   ))}
                 </select>
                 <p className="text-xs text-muted-foreground">
-                  Pick a fund to drive the three numbers below from that fund (annual) and this project (sick /
-                  religious). Click a fund card on the Annual funds tab for the same effect.
+                  Only funds with an assigned template appear here. The three numbers below follow the selected pool
+                  (annual) and this project (sick / religious). Assigned fund cards on the Annual funds tab do the same.
                 </p>
               </div>
+            ) : assignedGrants.length === 1 ? (
+              <p className="text-xs text-muted-foreground">
+                Balance scope: <span className="font-medium text-foreground">{assignedGrants[0].label}</span>
+                {assignedGrants[0].definition_label ? ` (${assignedGrants[0].definition_label})` : null}.
+              </p>
             ) : null}
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Annual</p>
-                {selectedGrant ? (
+                {selectedGrant && selectedGrant.definition_id ? (
                   <p className="mt-0.5 text-xs font-normal normal-case text-muted-foreground line-clamp-2">
                     {selectedGrant.label}
                   </p>
@@ -209,7 +259,7 @@ export function MemberProfileCardWithTabs({
                 grants={grants}
                 allocationLines={allocationLines}
                 selectedSummaryGrantId={summaryGrantId}
-                onSelectSummaryGrant={setSummaryGrantId}
+                onSelectSummaryGrant={setScopeFromFund}
               />
             </div>
           }

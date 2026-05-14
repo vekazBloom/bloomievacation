@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
-import { syncLegacyGrantWithFundDefinition } from '@/lib/leave/sync-legacy-grant-definition';
+import { replaceUserAnnualFundAssignmentsAndSyncLegacy } from '@/lib/leave/sync-user-annual-definition-assignments';
 import { canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -12,7 +12,10 @@ const updateSchema = z.object({
   annual_leave_total: z.number().int().min(0).optional(),
   sick_leave_total: z.number().int().min(0).optional(),
   religious_leave_total: z.number().int().min(0).optional(),
+  /** @deprecated Prefer annual_fund_definition_ids; kept for older clients (single template). */
   annual_fund_definition_id: z.string().uuid().nullable().optional(),
+  /** Global templates this user is assigned to; legacy pool metadata uses the first by sort order + label. */
+  annual_fund_definition_ids: z.array(z.string().uuid()).optional(),
 });
 
 export async function PATCH(
@@ -88,14 +91,22 @@ export async function PATCH(
     }
   }
 
-  if (p.annual_fund_definition_id !== undefined) {
-    const sync = await syncLegacyGrantWithFundDefinition(supabase, {
-      projectId: project.id,
-      userId: data.user_id as string,
-      definitionId: p.annual_fund_definition_id,
-    });
-    if (sync.error) {
-      return NextResponse.json({ error: sync.error }, { status: 400 });
+  let idsToApply: string[] | undefined;
+  if (p.annual_fund_definition_ids !== undefined) {
+    idsToApply = p.annual_fund_definition_ids;
+  } else if (p.annual_fund_definition_id !== undefined) {
+    idsToApply = p.annual_fund_definition_id ? [p.annual_fund_definition_id] : [];
+  }
+
+  if (idsToApply !== undefined) {
+    const service = createServiceClient();
+    const syncAssign = await replaceUserAnnualFundAssignmentsAndSyncLegacy(
+      service,
+      data.user_id as string,
+      idsToApply
+    );
+    if (syncAssign.error) {
+      return NextResponse.json({ error: syncAssign.error }, { status: 400 });
     }
   }
 

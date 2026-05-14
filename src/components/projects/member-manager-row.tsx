@@ -31,26 +31,36 @@ export function MemberManagerRow({
   member,
   otherProjects = [],
   fundDefinitions = [],
-  legacyDefinitionId = null,
+  assignedDefinitionIds = [],
 }: {
   projectSlug: string;
   member: MemberRow;
   otherProjects?: Array<{ slug: string; name: string }>;
   fundDefinitions?: AnnualFundDefinitionOption[];
-  legacyDefinitionId?: string | null;
+  /** Global fund templates this user is assigned to (all projects). */
+  assignedDefinitionIds?: string[];
 }) {
   const router = useRouter();
   const [role, setRole] = useState(member.role);
   const [annualTotal, setAnnualTotal] = useState(String(member.annual_leave_total));
   const [sickTotal, setSickTotal] = useState(String(member.sick_leave_total));
   const [religiousTotal, setReligiousTotal] = useState(String(member.religious_leave_total));
-  const [fundDefId, setFundDefId] = useState<string>(legacyDefinitionId ?? '');
+  const [selectedDefIds, setSelectedDefIds] = useState<Set<string>>(() => new Set(assignedDefinitionIds));
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    setFundDefId(legacyDefinitionId ?? '');
-  }, [legacyDefinitionId, member.id]);
+    setSelectedDefIds(new Set(assignedDefinitionIds));
+  }, [member.id, assignedDefinitionIds.join('|')]);
+
+  function toggleDefinition(id: string) {
+    setSelectedDefIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   async function saveChanges() {
     setIsSaving(true);
@@ -62,7 +72,7 @@ export function MemberManagerRow({
         annual_leave_total: Number(annualTotal),
         sick_leave_total: Number(sickTotal),
         religious_leave_total: Number(religiousTotal),
-        annual_fund_definition_id: fundDefId === '' ? null : fundDefId,
+        annual_fund_definition_ids: Array.from(selectedDefIds),
       }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -147,21 +157,27 @@ export function MemberManagerRow({
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">Annual fund (legacy)</label>
-        <select
-          value={fundDefId}
-          onChange={(event) => setFundDefId(event.target.value)}
-          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-        >
-          <option value="">Not linked</option>
-          {fundDefinitions.map((def) => (
-            <option key={def.id} value={def.id}>
-              {def.label}
-            </option>
-          ))}
-        </select>
+        <label className="text-xs text-muted-foreground">Assign to fund templates (global)</label>
+        <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border border-input bg-background px-2 py-2">
+          {fundDefinitions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No templates defined yet.</p>
+          ) : (
+            fundDefinitions.map((def) => (
+              <label key={def.id} className="flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-input"
+                  checked={selectedDefIds.has(def.id)}
+                  onChange={() => toggleDefinition(def.id)}
+                />
+                <span>{def.label}</span>
+              </label>
+            ))
+          )}
+        </div>
         <p className="text-[11px] leading-snug text-muted-foreground">
-          Name and validity follow the definition from project settings.
+          Checked templates apply on every project this person joins. The legacy annual pool uses the first template
+          (sort order, then name) for label and dates on each project.
         </p>
       </div>
 

@@ -59,5 +59,6 @@ Apply migrations in order, including:
 - `supabase/migrations/014_global_annual_fund_definitions.sql` — migrates to **`annual_fund_definitions`** (no `project_id`), repoints `definition_id`, drops **`project_annual_fund_definitions`**.
 - `supabase/migrations/015_backfill_missing_annual_grant_allocations.sql` — inserts missing **`leave_request_grant_allocations`** for annual requests (single eligible grant on start date, else legacy pool, else latest grant by `valid_from`).
 - `supabase/migrations/016_dedupe_religious_holiday_leave_requests.sql` — removes duplicate auto-logged **`Religious holiday:`** rows per user/day/reason (keeps oldest); fixes triple global `religious_leave_used` when a user was on multiple projects before the sync fix.
+- `supabase/migrations/017_user_annual_fund_definition_assignments.sql` — **`user_annual_fund_definition_assignments`**: global (user × fund template) assignments; legacy grant metadata still syncs from the primary template (first by sort order + label) on every project.
 
 Deploy app code that references **`annual_fund_definitions`** and the global API only after **014** is applied (after **013** on fresh installs).

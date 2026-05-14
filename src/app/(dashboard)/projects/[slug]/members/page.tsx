@@ -3,11 +3,10 @@ import { notFound, redirect } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { AddExistingMemberForm } from '@/components/projects/add-existing-member-form';
 import { InviteMemberForm } from '@/components/projects/invite-member-form';
-import { MemberManagerRow } from '@/components/projects/member-manager-row';
+import { ManageMembersMembersCard, type ManageMembersMemberRow } from '@/components/projects/manage-members-members-card';
 import { PendingInvitationsTable } from '@/components/projects/pending-invitations-table';
 import { UsersWithoutProjectsPanel } from '@/components/projects/users-without-projects-panel';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { getUserLeaveBalance } from '@/lib/leave/global-balance';
 import {
   closePendingInvitationsForEmail,
@@ -61,13 +60,36 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
     new Map<string, string | null>()
   );
 
+  const memberUserIds = (members || [])
+    .map((member: any) => member.users?.id as string | undefined)
+    .filter((id): id is string => Boolean(id));
+
+  const { data: assignmentRows } =
+    memberUserIds.length > 0
+      ? await supabase
+          .from('user_annual_fund_definition_assignments')
+          .select('user_id, definition_id')
+          .in('user_id', memberUserIds)
+      : { data: [] };
+
+  const assignmentsByUserId: Record<string, string[]> = {};
+  for (const row of assignmentRows || []) {
+    const u = row.user_id as string;
+    const d = row.definition_id as string;
+    if (!u || !d) continue;
+    if (!assignmentsByUserId[u]) assignmentsByUserId[u] = [];
+    if (!assignmentsByUserId[u].includes(d)) assignmentsByUserId[u].push(d);
+  }
+  for (const [uid, defId] of legacyDefinitionByUserId) {
+    if (defId && !assignmentsByUserId[uid]?.length) {
+      assignmentsByUserId[uid] = [defId];
+    }
+  }
+
   const fundDefinitions = (fundDefRows || []).map((r) => ({
     id: r.id as string,
     label: r.label as string,
   }));
-  const memberUserIds = (members || [])
-    .map((member: any) => member.users?.id as string | undefined)
-    .filter((id): id is string => Boolean(id));
 
   const { data: crossProjectMemberships } =
     memberUserIds.length > 0
@@ -161,23 +183,16 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
         <AddExistingMemberForm projectSlug={project.slug} />
       </div>
 
-      <Card>
-        <div className="border-b border-border px-6 py-4">
-          <h2 className="font-display text-lg">Current members</h2>
-        </div>
-        <CardContent className="p-0">
-          {(members || []).map((member: any) => (
-            <MemberManagerRow
-              key={member.id}
-              projectSlug={project.slug}
-              member={member}
-              otherProjects={otherProjectsByUser.get(member.users?.id) || []}
-              fundDefinitions={fundDefinitions}
-              legacyDefinitionId={legacyDefinitionByUserId.get(member.users?.id) ?? null}
-            />
-          ))}
-        </CardContent>
-      </Card>
+      <ManageMembersMembersCard
+        projectSlug={project.slug}
+        members={(members || []).map((m: any) => ({
+          ...m,
+          users: Array.isArray(m.users) ? m.users[0] : m.users,
+        })) as ManageMembersMemberRow[]}
+        fundDefinitions={fundDefinitions}
+        assignmentsByUserId={assignmentsByUserId}
+        otherProjectsByUser={otherProjectsByUser}
+      />
 
       <PendingInvitationsTable
         invitations={(invitations || []).map((invite) => ({
