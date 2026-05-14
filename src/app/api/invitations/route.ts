@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { buildInviteRoleSummary } from '@/lib/email/format';
 import { sendInviteReceivedEmail } from '@/lib/email/send';
 import { createClient } from '@/lib/supabase/server';
 import type { ProjectRole } from '@/types/database';
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
       email: normalizedEmail,
       project_id: projectId,
       role: role as ProjectRole,
+      grant_system_admin: false,
       sent_by: user.id,
     })
     .select('token, expires_at')
@@ -96,7 +98,11 @@ export async function POST(request: NextRequest) {
     to: normalizedEmail,
     inviterName: inviter?.name || user.email || 'A project admin',
     projectName: project.name,
-    role,
+    roleSummary: buildInviteRoleSummary({
+      projectRole: role,
+      grantSystemAdmin: false,
+      hasProject: true,
+    }),
     token: invite.token,
     expiresAt: invite.expires_at,
   });

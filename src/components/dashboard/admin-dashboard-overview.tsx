@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, CalendarDays, ClipboardList, FolderKanban, Plus, Settings, Users } from 'lucide-react';
+import { PlatformInviteForm } from '@/components/admin/platform-invite-form';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { RemoteImage } from '@/components/ui/remote-image';
@@ -91,6 +92,8 @@ export function AdminDashboardOverview({ profile, projects }: AdminDashboardOver
               </Link>
             </Button>
           </div>
+
+          <PlatformInviteForm projects={projects.map((p) => ({ id: p.id, name: p.name }))} />
         </CardContent>
       </Card>
 

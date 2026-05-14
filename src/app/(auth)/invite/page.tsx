@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedUser } from '@/lib/auth/dashboard';
+import { buildInviteRoleSummary } from '@/lib/email/format';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { RemoteImage } from '@/components/ui/remote-image';
 
@@ -50,6 +50,12 @@ export default async function InvitePage({ searchParams }: Props) {
     redirect(`/api/invitations/accept?token=${token}&redirect=/dashboard`);
   }
 
+  const roleSummary = buildInviteRoleSummary({
+    projectRole: invite.role,
+    grantSystemAdmin: Boolean(invite.grant_system_admin),
+    hasProject: Boolean(invite.project_id),
+  });
+
   // Logged in but with different email → log out hint.
   if (user && user.email !== invite.email) {
     return (
@@ -77,10 +83,8 @@ export default async function InvitePage({ searchParams }: Props) {
     <InviteCard project={invite.projects}>
       <div className="space-y-1">
         <p className="text-sm">
-          You&apos;ve been invited to join as a{' '}
-          <Badge variant="secondary" className="font-mono uppercase">
-            {invite.role}
-          </Badge>
+          You&apos;ve been invited with access:{' '}
+          <span className="font-medium text-foreground">{roleSummary}</span>
         </p>
         <p className="text-xs text-muted-foreground">
           Sent to <strong>{invite.email}</strong>
@@ -103,6 +107,9 @@ function InviteCard({
   project: { name: string; logo_url: string | null } | null;
   children: React.ReactNode;
 }) {
+  const title = project?.name ?? 'BloomieVacation';
+  const initial = project?.name?.[0]?.toUpperCase() ?? 'B';
+
   return (
     <div className="rounded-2xl border border-border bg-card/80 p-8 shadow-xl backdrop-blur-sm sm:p-10">
       <div className="mb-6 flex items-center gap-4">
@@ -116,14 +123,12 @@ function InviteCard({
           />
         ) : (
           <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary/10 font-display text-2xl text-primary">
-            {project?.name?.[0]?.toUpperCase() || '?'}
+            {initial}
           </div>
         )}
         <div>
           <p className="text-xs uppercase tracking-wider text-muted-foreground">You&apos;re invited to</p>
-          <h1 className="font-display text-2xl font-medium tracking-tight">
-            {project?.name || 'A project'}
-          </h1>
+          <h1 className="font-display text-2xl font-medium tracking-tight">{title}</h1>
         </div>
       </div>
       <div className="space-y-5">{children}</div>

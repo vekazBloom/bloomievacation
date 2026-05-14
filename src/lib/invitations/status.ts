@@ -110,6 +110,9 @@ export async function reconcileAcceptedInvitationsForUser(
   }
 
   for (const invite of acceptedInvites || []) {
+    if (!invite.project_id) {
+      continue;
+    }
     const { error: memberError } = await service.from('project_members').upsert(
       {
         project_id: invite.project_id,

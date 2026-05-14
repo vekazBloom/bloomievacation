@@ -9,8 +9,9 @@ type ServiceClient = AppSupabase;
 type InviteRow = {
   id: string;
   email: string;
-  project_id: string;
+  project_id: string | null;
   role: ProjectRole;
+  grant_system_admin: boolean | null;
   expires_at: string;
   accepted_at: string | null;
   sent_by: string | null;
@@ -40,46 +41,75 @@ export async function fulfillInvitation(
     return { ok: false as const, status: 403, error: 'Email mismatch' };
   }
 
-  const { data: existingMembership } = await service
-    .from('project_members')
-    .select('id')
-    .eq('project_id', invite.project_id)
-    .eq('user_id', user.id)
+  const grantAdmin = Boolean(invite.grant_system_admin);
+  const { data: existingProfile } = await service
+    .from('users')
+    .select('is_system_admin')
+    .eq('id', user.id)
     .maybeSingle();
 
-  await service.from('users').upsert(
+  const { data: existingMembership } = invite.project_id
+    ? await service
+        .from('project_members')
+        .select('id')
+        .eq('project_id', invite.project_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+    : { data: null };
+
+  const isSystemAdmin = Boolean(existingProfile?.is_system_admin) || grantAdmin;
+
+  const { error: userErr } = await service.from('users').upsert(
     {
       id: user.id,
       email: user.email,
       name: user.name || user.email.split('@')[0],
+      is_system_admin: isSystemAdmin,
     },
     { onConflict: 'id' }
   );
 
-  const { error: memberErr } = await service.from('project_members').upsert(
-    {
-      project_id: invite.project_id,
-      user_id: user.id,
-      role: invite.role,
-    },
-    { onConflict: 'project_id,user_id' }
-  );
-
-  if (memberErr) {
-    return { ok: false as const, status: 500, error: memberErr.message };
+  if (userErr) {
+    return { ok: false as const, status: 500, error: userErr.message };
   }
 
-  const { error: acceptError } = await closePendingInvitationsForEmail(
-    service,
-    invite.project_id,
-    invite.email
-  );
+  if (invite.project_id) {
+    const { error: memberErr } = await service.from('project_members').upsert(
+      {
+        project_id: invite.project_id,
+        user_id: user.id,
+        role: invite.role,
+      },
+      { onConflict: 'project_id,user_id' }
+    );
 
-  if (acceptError) {
-    return { ok: false as const, status: 500, error: acceptError.message };
+    if (memberErr) {
+      return { ok: false as const, status: 500, error: memberErr.message };
+    }
+
+    const { error: acceptError } = await closePendingInvitationsForEmail(
+      service,
+      invite.project_id,
+      invite.email
+    );
+
+    if (acceptError) {
+      return { ok: false as const, status: 500, error: acceptError.message };
+    }
+  } else {
+    const { error: acceptError } = await service
+      .from('invitations')
+      .update({ accepted_at: new Date().toISOString() })
+      .eq('id', invite.id)
+      .is('accepted_at', null);
+
+    if (acceptError) {
+      return { ok: false as const, status: 500, error: acceptError.message };
+    }
   }
 
-  const shouldNotify = options?.notify !== false && !existingMembership;
+  const shouldNotify =
+    options?.notify !== false && invite.project_id && !existingMembership;
 
   if (shouldNotify) {
     const { data: project } = await service

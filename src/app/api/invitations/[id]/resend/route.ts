@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { buildInviteRoleSummary } from '@/lib/email/format';
 import { sendInviteReceivedEmail } from '@/lib/email/send';
 import { createClient } from '@/lib/supabase/server';
 
@@ -50,7 +51,7 @@ export async function POST(
 
   const { data: invitation } = await supabase
     .from('invitations')
-    .select('id, email, role, expires_at, accepted_at, project_id')
+    .select('id, email, role, expires_at, accepted_at, project_id, grant_system_admin')
     .eq('id', invitationId)
     .maybeSingle();
 
@@ -62,7 +63,19 @@ export async function POST(
     return NextResponse.json({ error: 'Invitation already accepted' }, { status: 409 });
   }
 
-  const allowed = await canManageProjectMembers(user.id, invitation.project_id);
+  const { data: profile } = await supabase
+    .from('users')
+    .select('is_system_admin')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  let allowed = false;
+  if (!invitation.project_id) {
+    allowed = Boolean(profile?.is_system_admin);
+  } else {
+    allowed = await canManageProjectMembers(user.id, invitation.project_id);
+  }
+
   if (!allowed) {
     return NextResponse.json({ error: 'Only project admins can resend invitations' }, { status: 403 });
   }
@@ -95,17 +108,22 @@ export async function POST(
     .eq('id', user.id)
     .maybeSingle();
 
-  const { data: project } = await supabase
-    .from('projects')
-    .select('name')
-    .eq('id', invitation.project_id)
-    .maybeSingle();
+  const { data: project } = invitation.project_id
+    ? await supabase.from('projects').select('name').eq('id', invitation.project_id).maybeSingle()
+    : { data: null };
+
+  const grantSystemAdmin = Boolean(invitation.grant_system_admin);
+  const hasProject = Boolean(invitation.project_id);
 
   const emailResult = await sendInviteReceivedEmail({
     to: invitation.email,
     inviterName: inviter?.name || user.email || 'A project admin',
-    projectName: project?.name || 'Project',
-    role: invitation.role,
+    projectName: project?.name ?? null,
+    roleSummary: buildInviteRoleSummary({
+      projectRole: invitation.role,
+      grantSystemAdmin,
+      hasProject,
+    }),
     token: updatedInvite.token,
     expiresAt: updatedInvite.expires_at,
   });

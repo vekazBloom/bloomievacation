@@ -78,8 +78,9 @@ export type Database = {
           created_at: string | null
           email: string
           expires_at: string
+          grant_system_admin: boolean
           id: string
-          project_id: string
+          project_id: string | null
           role: Database["public"]["Enums"]["project_role"]
           sent_by: string | null
           token: string
@@ -89,8 +90,9 @@ export type Database = {
           created_at?: string | null
           email: string
           expires_at?: string
+          grant_system_admin?: boolean
           id?: string
-          project_id: string
+          project_id?: string | null
           role?: Database["public"]["Enums"]["project_role"]
           sent_by?: string | null
           token?: string
@@ -100,8 +102,9 @@ export type Database = {
           created_at?: string | null
           email?: string
           expires_at?: string
+          grant_system_admin?: boolean
           id?: string
-          project_id?: string
+          project_id?: string | null
           role?: Database["public"]["Enums"]["project_role"]
           sent_by?: string | null
           token?: string

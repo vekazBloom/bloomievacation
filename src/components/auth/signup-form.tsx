@@ -105,7 +105,7 @@ export function SignupForm({
         return;
       }
 
-      toast.success('Account created! Joining your project…');
+      toast.success('Account created! You are all set.');
       if (data.user?.id) {
         markInvitationSyncCompleted(data.user.id);
       }

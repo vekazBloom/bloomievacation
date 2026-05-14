@@ -15,20 +15,25 @@ import { projectPath } from '@/lib/projects/paths';
 export async function sendInviteReceivedEmail(params: {
   to: string;
   inviterName: string;
-  projectName: string;
-  role: string;
+  /** Project name, or null for a platform-only invite (no project yet). */
+  projectName: string | null;
+  roleSummary: string;
   token: string;
   expiresAt: string;
 }) {
   const inviteUrl = absoluteAppUrl(`/invite?token=${params.token}`);
+  const displayName = params.projectName?.trim() || 'BloomieVacation';
   return sendEmail({
     to: params.to,
-    subject: `You're invited to ${params.projectName}`,
+    subject: params.projectName
+      ? `You're invited to ${params.projectName}`
+      : `You're invited to BloomieVacation`,
     react: InviteReceivedEmail({
       inviteeEmail: params.to,
       inviterName: params.inviterName,
       projectName: params.projectName,
-      role: formatRoleLabel(params.role),
+      displayName,
+      roleSummary: params.roleSummary,
       inviteUrl,
       expiresAt: formatEmailDate(params.expiresAt),
     }),
@@ -209,8 +214,11 @@ export async function sendNotificationEmail(
       return sendInviteReceivedEmail({
         to: String(params.to),
         inviterName: String(params.inviterName),
-        projectName: String(params.projectName),
-        role: String(params.role),
+        projectName:
+          params.projectName != null && String(params.projectName).trim() !== ''
+            ? String(params.projectName)
+            : null,
+        roleSummary: String(params.roleSummary ?? params.role ?? 'Member'),
         token: String(params.token),
         expiresAt: String(params.expiresAt),
       });
