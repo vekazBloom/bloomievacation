@@ -7,19 +7,59 @@ import type { UserLeaveBalance } from '@/lib/leave/global-balance';
 
 type ServiceClient = AppSupabase;
 
-function formatGlobalBalanceSnapshot(b: UserLeaveBalance | null): string {
-  if (!b) return 'Balance not available.';
-  const annualPool = Number(b.annual_leave_total || 0) + Number(b.annual_leave_carried_over || 0);
-  const annualLeft = annualPool - Number(b.annual_leave_used || 0);
-  const sickPool = Number(b.sick_leave_total || 0);
-  const sickLeft = sickPool - Number(b.sick_leave_used || 0);
-  const relPool = Number(b.religious_leave_total || 0);
-  const relLeft = relPool - Number(b.religious_leave_used || 0);
-  return [
-    `Annual: ${annualLeft.toFixed(1)} / ${annualPool.toFixed(1)} days remaining`,
-    `Sick: ${sickLeft.toFixed(1)} / ${sickPool.toFixed(1)} days remaining`,
-    `Religious: ${relLeft.toFixed(1)} / ${relPool.toFixed(1)} days remaining`,
-  ].join(' · ');
+function formatApprovedLeaveBalance(
+  b: UserLeaveBalance | null,
+  leaveType: 'annual' | 'sick'
+): { summary: string; balanceLabel: string } {
+  if (!b) {
+    return {
+      summary: 'Balance not available.',
+      balanceLabel: 'Days remaining',
+    };
+  }
+
+  if (leaveType === 'annual') {
+    const pool =
+      Number(b.annual_leave_total || 0) + Number(b.annual_leave_carried_over || 0);
+    const used = Number(b.annual_leave_used || 0);
+    const remaining = Math.max(0, pool - used);
+    return {
+      summary: `${remaining.toFixed(1)} of ${pool.toFixed(1)} days remaining`,
+      balanceLabel: 'Annual leave remaining',
+    };
+  }
+
+  const pool = Number(b.sick_leave_total || 0);
+  const used = Number(b.sick_leave_used || 0);
+  const remaining = Math.max(0, pool - used);
+  return {
+    summary: `${remaining.toFixed(1)} of ${pool.toFixed(1)} days remaining`,
+    balanceLabel: 'Sick leave remaining',
+  };
+}
+
+function collectActiveProjectNames(
+  requestProject: { name?: string; is_archived?: boolean | null } | null,
+  memberships: { projects: unknown }[] | null
+): string {
+  const projectNames = new Set<string>();
+
+  if (requestProject?.name && !requestProject.is_archived) {
+    projectNames.add(requestProject.name);
+  }
+
+  for (const row of memberships || []) {
+    const p = row.projects as
+      | { name?: string; is_archived?: boolean | null }
+      | { name?: string; is_archived?: boolean | null }[]
+      | null;
+    const project = Array.isArray(p) ? p[0] : p;
+    if (project?.name && !project.is_archived) {
+      projectNames.add(project.name);
+    }
+  }
+
+  return projectNames.size === 0 ? '—' : [...projectNames].sort().join(', ');
 }
 
 /**
@@ -46,7 +86,8 @@ export async function sendLeaveApprovalForwardCopies(
   const { data: forwardRows } = await service
     .from('user_leave_approval_forward_emails')
     .select('email')
-    .eq('user_id', params.approverUserId);
+    .eq('user_id', params.approverUserId)
+    .eq('send_enabled', true);
 
   const recipients = [...new Set((forwardRows || []).map((r) => (r.email as string).trim()).filter(Boolean))];
   if (recipients.length === 0) return { error: null };
@@ -55,7 +96,11 @@ export async function sendLeaveApprovalForwardCopies(
     await Promise.all([
       service.from('users').select('name').eq('id', lr.user_id as string).maybeSingle(),
       service.from('users').select('name').eq('id', params.approverUserId).maybeSingle(),
-      service.from('projects').select('name').eq('id', lr.project_id as string).maybeSingle(),
+      service
+        .from('projects')
+        .select('name, is_archived')
+        .eq('id', lr.project_id as string)
+        .maybeSingle(),
       service
         .from('user_leave_balances')
         .select(
@@ -65,26 +110,24 @@ export async function sendLeaveApprovalForwardCopies(
         .maybeSingle(),
       service
         .from('project_members')
-        .select('projects(name)')
+        .select('projects(name, is_archived)')
         .eq('user_id', lr.user_id as string),
     ]);
 
-  const projectNames = new Set<string>();
-  const requestProject = (project as { name?: string } | null)?.name;
-  if (requestProject) projectNames.add(requestProject);
-  for (const row of memberships || []) {
-    const p = row.projects as { name?: string } | { name?: string }[] | null;
-    const name = Array.isArray(p) ? p[0]?.name : p?.name;
-    if (name) projectNames.add(name);
-  }
-  const projectNamesStr =
-    projectNames.size === 0 ? '—' : [...projectNames].sort().join(', ');
+  const projectNamesStr = collectActiveProjectNames(
+    project as { name?: string; is_archived?: boolean | null } | null,
+    memberships
+  );
 
   const employeeName = (employee as { name?: string } | null)?.name || 'Employee';
   const approverName = (approver as { name?: string } | null)?.name || 'Approver';
   const dateRange = formatDateRange(lr.start_date as string, lr.end_date as string);
   const wd = Number(lr.working_days_count ?? 0);
-  const remainingSummary = formatGlobalBalanceSnapshot(balance as UserLeaveBalance | null);
+  const leaveType = t as 'annual' | 'sick';
+  const { summary: remainingSummary, balanceLabel } = formatApprovedLeaveBalance(
+    balance as UserLeaveBalance | null,
+    leaveType
+  );
 
   const subject = `[BloomieVacation] Approved ${formatLeaveTypeLabel(t)} — ${employeeName} (${wd} day${wd === 1 ? '' : 's'})`;
 
@@ -96,6 +139,7 @@ export async function sendLeaveApprovalForwardCopies(
     workingDays: wd,
     dateRange,
     remainingSummary,
+    balanceLabel,
   });
 
   for (const to of recipients) {

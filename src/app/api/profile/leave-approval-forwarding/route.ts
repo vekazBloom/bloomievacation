@@ -6,13 +6,34 @@ import { formatLeaveTypeLabel } from '@/lib/email/format';
 
 export const dynamic = 'force-dynamic';
 
+const addressSchema = z.object({
+  email: z.string(),
+  sendEnabled: z.boolean(),
+});
+
 const putSchema = z.object({
-  emails: z.array(z.string()).max(40),
+  addresses: z.array(addressSchema).max(40),
 });
 
 const postSendSchema = z.object({
   requestIds: z.array(z.string().uuid()).min(1),
 });
+
+export type ForwardAddressDto = {
+  id: string;
+  email: string;
+  sendEnabled: boolean;
+};
+
+function mapForwardRows(
+  rows: { id: string; email: string; send_enabled: boolean }[] | null
+): ForwardAddressDto[] {
+  return (rows || []).map((r) => ({
+    id: r.id,
+    email: r.email.trim(),
+    sendEnabled: r.send_enabled,
+  }));
+}
 
 export async function GET() {
   const supabase = createClient();
@@ -27,7 +48,7 @@ export async function GET() {
   const [{ data: forwardRows, error: fe }, { data: pending, error: pe }] = await Promise.all([
     supabase
       .from('user_leave_approval_forward_emails')
-      .select('email')
+      .select('id, email, send_enabled')
       .eq('user_id', user.id)
       .order('created_at', { ascending: true }),
     supabase
@@ -45,7 +66,7 @@ export async function GET() {
   if (fe) return NextResponse.json({ error: fe.message }, { status: 500 });
   if (pe) return NextResponse.json({ error: pe.message }, { status: 500 });
 
-  const emails = [...new Set((forwardRows || []).map((r) => (r.email as string).trim()))];
+  const addresses = mapForwardRows(forwardRows as { id: string; email: string; send_enabled: boolean }[] | null);
 
   const pendingOut = (pending || []).map((row) => {
     const u = row.users as { name?: string } | { name?: string }[] | null;
@@ -65,7 +86,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ emails, pending: pendingOut });
+  return NextResponse.json({ addresses, pending: pendingOut });
 }
 
 export async function PUT(request: NextRequest) {
@@ -81,17 +102,20 @@ export async function PUT(request: NextRequest) {
   const parsed = putSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
 
-  const normalized: string[] = [];
-  for (const line of parsed.data.emails) {
-    const t = line.trim().toLowerCase();
+  const normalized: { email: string; sendEnabled: boolean }[] = [];
+  const seen = new Set<string>();
+
+  for (const row of parsed.data.addresses) {
+    const t = row.email.trim().toLowerCase();
     if (!t) continue;
     const r = z.string().email().safeParse(t);
     if (!r.success) {
-      return NextResponse.json({ error: `Invalid email: ${line.trim()}` }, { status: 400 });
+      return NextResponse.json({ error: `Invalid email: ${row.email.trim()}` }, { status: 400 });
     }
-    normalized.push(r.data);
+    if (seen.has(r.data)) continue;
+    seen.add(r.data);
+    normalized.push({ email: r.data, sendEnabled: row.sendEnabled });
   }
-  const unique = [...new Set(normalized)];
 
   const { error: delErr } = await supabase
     .from('user_leave_approval_forward_emails')
@@ -99,17 +123,26 @@ export async function PUT(request: NextRequest) {
     .eq('user_id', user.id);
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
-  if (unique.length > 0) {
-    const { error: insErr } = await supabase.from('user_leave_approval_forward_emails').insert(
-      unique.map((email) => ({
-        user_id: user.id,
-        email,
-      }))
-    );
+  if (normalized.length > 0) {
+    const { data: inserted, error: insErr } = await supabase
+      .from('user_leave_approval_forward_emails')
+      .insert(
+        normalized.map((row) => ({
+          user_id: user.id,
+          email: row.email,
+          send_enabled: row.sendEnabled,
+        }))
+      )
+      .select('id, email, send_enabled');
+
     if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+
+    return NextResponse.json({
+      addresses: mapForwardRows(inserted as { id: string; email: string; send_enabled: boolean }[]),
+    });
   }
 
-  return NextResponse.json({ emails: unique });
+  return NextResponse.json({ addresses: [] });
 }
 
 export async function POST(request: NextRequest) {
@@ -125,15 +158,16 @@ export async function POST(request: NextRequest) {
   const parsed = postSendSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
 
-  const { count: forwardCount, error: fcErr } = await supabase
+  const { count: enabledCount, error: fcErr } = await supabase
     .from('user_leave_approval_forward_emails')
     .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .eq('send_enabled', true);
 
   if (fcErr) return NextResponse.json({ error: fcErr.message }, { status: 500 });
-  if (!forwardCount) {
+  if (!enabledCount) {
     return NextResponse.json(
-      { error: 'Add at least one forwarding address and save before sending.' },
+      { error: 'Enable at least one forwarding address and save before sending.' },
       { status: 400 }
     );
   }
@@ -153,7 +187,10 @@ export async function POST(request: NextRequest) {
   const invalid = parsed.data.requestIds.filter((id) => !allowed.has(id));
   if (invalid.length > 0) {
     return NextResponse.json(
-      { error: 'Some requests are not eligible (must be annual/sick, approved by you, and not already forwarded).' },
+      {
+        error:
+          'Some requests are not eligible (must be annual/sick, approved by you, and not already forwarded).',
+      },
       { status: 400 }
     );
   }

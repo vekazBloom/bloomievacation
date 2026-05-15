@@ -8,6 +8,7 @@ export type LeaveApprovalForwardEmailProps = {
   workingDays: number;
   dateRange: string;
   remainingSummary: string;
+  balanceLabel: string;
 };
 
 export function LeaveApprovalForwardEmail({
@@ -18,6 +19,7 @@ export function LeaveApprovalForwardEmail({
   workingDays,
   dateRange,
   remainingSummary,
+  balanceLabel,
 }: LeaveApprovalForwardEmailProps) {
   return (
     <EmailLayout
@@ -34,7 +36,7 @@ export function LeaveApprovalForwardEmail({
           { label: 'Working days requested', value: String(workingDays) },
           { label: 'Dates', value: dateRange },
           { label: 'Approved by', value: approverName },
-          { label: 'Balance after approval (global)', value: remainingSummary },
+          { label: balanceLabel, value: remainingSummary },
         ]}
       />
     </EmailLayout>

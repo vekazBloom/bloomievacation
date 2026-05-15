@@ -1,10 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatDateRange } from '@/lib/utils';
+
+type ForwardAddress = {
+  id?: string;
+  email: string;
+  sendEnabled: boolean;
+};
 
 type PendingRow = {
   id: string;
@@ -17,8 +25,20 @@ type PendingRow = {
   projectName: string;
 };
 
+function parseNewEmails(raw: string): string[] {
+  return [
+    ...new Set(
+      raw
+        .split(/[\n,;]+/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    ),
+  ];
+}
+
 export function LeaveApprovalForwardingPanel() {
-  const [emailsText, setEmailsText] = useState('');
+  const [addresses, setAddresses] = useState<ForwardAddress[]>([]);
+  const [newEmailInput, setNewEmailInput] = useState('');
   const [pending, setPending] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -37,7 +57,13 @@ export function LeaveApprovalForwardingPanel() {
         setError(body.error || 'Failed to load');
         return;
       }
-      setEmailsText((body.emails as string[]).join('\n'));
+      setAddresses(
+        (body.addresses as { id: string; email: string; sendEnabled: boolean }[]).map((a) => ({
+          id: a.id,
+          email: a.email,
+          sendEnabled: a.sendEnabled,
+        }))
+      );
       setPending(body.pending as PendingRow[]);
       setSelected({});
     } finally {
@@ -56,28 +82,78 @@ export function LeaveApprovalForwardingPanel() {
     () => pendingIds.filter((id) => selected[id]),
     [pendingIds, selected]
   );
+  const enabledCount = useMemo(
+    () => addresses.filter((a) => a.sendEnabled).length,
+    [addresses]
+  );
 
-  async function saveEmails() {
+  function addEmailsFromInput() {
+    const incoming = parseNewEmails(newEmailInput);
+    if (incoming.length === 0) return;
+
+    const existing = new Set(addresses.map((a) => a.email.toLowerCase()));
+    const toAdd = incoming.filter((e) => !existing.has(e));
+    if (toAdd.length === 0) {
+      setNewEmailInput('');
+      return;
+    }
+
+    setAddresses((prev) => [
+      ...prev,
+      ...toAdd.map((email) => ({ email, sendEnabled: true })),
+    ]);
+    setNewEmailInput('');
+  }
+
+  function removeAddress(email: string) {
+    setAddresses((prev) => prev.filter((a) => a.email !== email));
+  }
+
+  function toggleSendEnabled(email: string, sendEnabled: boolean) {
+    setAddresses((prev) =>
+      prev.map((a) => (a.email === email ? { ...a, sendEnabled } : a))
+    );
+  }
+
+  async function saveAddresses() {
     setSaving(true);
     setMessage(null);
     setError(null);
-    const raw = emailsText
-      .split(/[\n,;]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const unique = [...new Set(raw.map((e) => e.toLowerCase()))];
+
+    const draft = parseNewEmails(newEmailInput);
+    const merged = [...addresses];
+    const existing = new Set(merged.map((a) => a.email.toLowerCase()));
+    for (const email of draft) {
+      if (!existing.has(email)) {
+        merged.push({ email, sendEnabled: true });
+        existing.add(email);
+      }
+    }
+
     try {
       const res = await fetch('/api/profile/leave-approval-forwarding', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: unique }),
+        body: JSON.stringify({
+          addresses: merged.map((a) => ({
+            email: a.email,
+            sendEnabled: a.sendEnabled,
+          })),
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(body.error || 'Save failed');
         return;
       }
-      setEmailsText((body.emails as string[]).join('\n'));
+      setAddresses(
+        (body.addresses as { id: string; email: string; sendEnabled: boolean }[]).map((a) => ({
+          id: a.id,
+          email: a.email,
+          sendEnabled: a.sendEnabled,
+        }))
+      );
+      setNewEmailInput('');
       setMessage('Forwarding addresses saved.');
     } finally {
       setSaving(false);
@@ -131,25 +207,85 @@ export function LeaveApprovalForwardingPanel() {
         <div className="border-b border-border px-6 py-4">
           <h2 className="font-display text-lg">Forwarding addresses</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            When you approve annual or sick leave, we email a short summary to each address below (employee,
-            projects, days, type, who approved, and their global balance snapshot).
+            Saved addresses stay on this page. Check which ones should receive a copy when you approve annual
+            or sick leave.
           </p>
         </div>
         <CardContent className="space-y-4 p-6">
-          <div className="space-y-2">
-            <Label htmlFor="forward-emails-area">Email addresses (one per line)</Label>
-            <textarea
-              id="forward-emails-area"
-              className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              value={emailsText}
-              onChange={(e) => setEmailsText(e.target.value)}
-              placeholder={'finance@company.com\nhr@company.com'}
-              aria-label="Forwarding email addresses"
-            />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="new-forward-email">Add email</Label>
+              <Input
+                id="new-forward-email"
+                type="email"
+                value={newEmailInput}
+                onChange={(e) => setNewEmailInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addEmailsFromInput();
+                  }
+                }}
+                placeholder="finance@company.com"
+              />
+            </div>
+            <Button type="button" variant="outline" onClick={addEmailsFromInput}>
+              Add
+            </Button>
           </div>
-          <Button type="button" onClick={() => void saveEmails()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save addresses'}
-          </Button>
+
+          {addresses.length > 0 ? (
+            <ul className="divide-y divide-border rounded-md border border-border">
+              {addresses.map((row) => (
+                <li
+                  key={row.id ?? row.email}
+                  className="flex flex-wrap items-center gap-3 px-4 py-3"
+                >
+                  <input
+                    type="checkbox"
+                    id={`send-${row.email}`}
+                    className="h-4 w-4 shrink-0 rounded border border-input"
+                    checked={row.sendEnabled}
+                    onChange={(e) => toggleSendEnabled(row.email, e.target.checked)}
+                    aria-label={`Send copies to ${row.email}`}
+                  />
+                  <Label
+                    htmlFor={`send-${row.email}`}
+                    className="min-w-0 flex-1 cursor-pointer text-sm font-normal"
+                  >
+                    <span className="font-medium text-foreground">{row.email}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {row.sendEnabled ? 'Will receive approval copies' : 'Saved, not receiving copies'}
+                    </span>
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeAddress(row.email)}
+                    aria-label={`Remove ${row.email}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">No saved addresses yet.</p>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" onClick={() => void saveAddresses()} disabled={saving}>
+              {saving ? 'Saving…' : 'Save addresses'}
+            </Button>
+            {addresses.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {enabledCount} of {addresses.length} address{addresses.length === 1 ? '' : 'es'} enabled for
+                sending
+              </p>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
 
@@ -182,11 +318,14 @@ export function LeaveApprovalForwardingPanel() {
                 <Button
                   type="button"
                   size="sm"
-                  disabled={sending || selectedIds.length === 0}
+                  disabled={sending || selectedIds.length === 0 || enabledCount === 0}
                   onClick={() => void sendSelected()}
                 >
                   {sending ? 'Sending…' : `Send selected (${selectedIds.length})`}
                 </Button>
+                {enabledCount === 0 ? (
+                  <p className="text-xs text-muted-foreground">Enable at least one address above to send.</p>
+                ) : null}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
