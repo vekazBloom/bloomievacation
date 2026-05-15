@@ -241,9 +241,6 @@ export async function sendLeaveApprovalForwardCopies(
     .eq('user_id', params.approverUserId)
     .eq('send_enabled', true);
 
-  const recipients = [...new Set((forwardRows || []).map((r) => (r.email as string).trim()).filter(Boolean))];
-  if (recipients.length === 0) return { error: null };
-
   const [{ data: employee }, { data: approver }, { data: project }, { data: memberships }] =
     await Promise.all([
       service.from('users').select('name, email').eq('id', lr.user_id as string).maybeSingle(),
@@ -265,7 +262,20 @@ export async function sendLeaveApprovalForwardCopies(
   );
 
   const employeeName = (employee as { name?: string } | null)?.name || 'Employee';
-  const employeeEmail = (employee as { email?: string } | null)?.email?.trim() || '—';
+  const employeeEmailRaw = (employee as { email?: string } | null)?.email?.trim() || '';
+  const employeeEmail = employeeEmailRaw || '—';
+
+  const forwardRecipients = (forwardRows || [])
+    .map((r) => (r.email as string).trim().toLowerCase())
+    .filter(Boolean);
+  const recipients = [
+    ...new Set([
+      ...forwardRecipients,
+      ...(employeeEmailRaw ? [employeeEmailRaw.toLowerCase()] : []),
+    ]),
+  ];
+  if (recipients.length === 0) return { error: null };
+
   const approverName = (approver as { name?: string } | null)?.name || 'Approver';
   const dateRange = formatDateRange(lr.start_date as string, lr.end_date as string);
   const wd = Number(lr.working_days_count ?? 0);
@@ -298,18 +308,16 @@ export async function sendLeaveApprovalForwardCopies(
     fundBalances,
   });
 
-  for (const to of recipients) {
-    const result = await sendEmail({ to, subject, react });
-    if (!result.success) {
-      const err = result.error;
-      const msg =
-        typeof err === 'string'
-          ? err
-          : err instanceof Error
-            ? err.message
-            : 'Email send failed';
-      return { error: msg };
-    }
+  const result = await sendEmail({ to: recipients, subject, react });
+  if (!result.success) {
+    const err = result.error;
+    const msg =
+      typeof err === 'string'
+        ? err
+        : err instanceof Error
+          ? err.message
+          : 'Email send failed';
+    return { error: msg };
   }
 
   const { error: upErr } = await service
