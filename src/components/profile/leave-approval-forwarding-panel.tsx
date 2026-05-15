@@ -60,32 +60,56 @@ export function LeaveApprovalForwardingPanel() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/profile/leave-approval-forwarding', { cache: 'no-store' });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(body.error || 'Failed to load');
-        return;
-      }
-      setAddresses(
-        (body.addresses as { id: string; email: string; sendEnabled: boolean }[]).map((a) => ({
-          id: a.id,
-          email: a.email,
-          sendEnabled: a.sendEnabled,
-        }))
-      );
-      const loaded = (body.requests ?? body.pending) as ApprovalRow[];
-      setRequests(loaded);
+  const applyPayload = useCallback((body: Record<string, unknown>, options?: { resetListUi?: boolean }) => {
+    setAddresses(
+      (body.addresses as { id: string; email: string; sendEnabled: boolean }[]).map((a) => ({
+        id: a.id,
+        email: a.email,
+        sendEnabled: a.sendEnabled,
+      }))
+    );
+    const loaded = (body.requests ?? body.pending) as ApprovalRow[];
+    setRequests(loaded);
+    if (options?.resetListUi) {
       const notSent = loaded.filter((r) => !r.forwardSent);
       setSelected(selectionForRows(notSent));
       setSendFilter('not_sent');
-    } finally {
-      setLoading(false);
     }
   }, []);
+
+  const load = useCallback(
+    async (options?: { preserveUi?: boolean }) => {
+      if (!options?.preserveUi) {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const res = await fetch('/api/profile/leave-approval-forwarding', { cache: 'no-store' });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setError(body.error || 'Failed to load');
+          return;
+        }
+        applyPayload(body, { resetListUi: !options?.preserveUi });
+      } finally {
+        if (!options?.preserveUi) {
+          setLoading(false);
+        }
+      }
+    },
+    [applyPayload]
+  );
+
+  function markRequestsSent(ids: string[]) {
+    if (ids.length === 0) return;
+    const now = new Date().toISOString();
+    const idSet = new Set(ids);
+    setRequests((prev) =>
+      prev.map((r) =>
+        idSet.has(r.id) ? { ...r, forwardSent: true, forwardSentAt: now } : r
+      )
+    );
+  }
 
   useEffect(() => {
     void load();
@@ -207,13 +231,24 @@ export function LeaveApprovalForwardingPanel() {
         setError(body.error || 'Send failed');
         return;
       }
-      const failed = (body.failedCount as number) ?? 0;
+      const results = (body.results as { id: string; ok: boolean }[] | undefined) ?? [];
+      const okIds = results.filter((r) => r.ok).map((r) => r.id);
+      const failed = (body.failedCount as number) ?? results.filter((r) => !r.ok).length;
+
+      if (okIds.length > 0) {
+        markRequestsSent(okIds);
+      }
+
       if (failed > 0) {
         setError(`${failed} request(s) could not be sent (check Resend / logs).`);
+        if (okIds.length > 0) {
+          setMessage(
+            `${okIds.length} sent. ${failed} failed — scroll position and filter unchanged.`
+          );
+        }
       } else {
         setMessage(successMessage);
       }
-      await load();
     } catch {
       setError('Send failed');
     }
