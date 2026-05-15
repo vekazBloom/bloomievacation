@@ -5,15 +5,103 @@ import { formatDateRange } from '@/lib/utils';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import {
   fetchGrantsForMember,
+  grantsEligibleForStartDate,
   grantRemaining,
   sumAllocatedToGrant,
+  type AnnualGrantRow,
 } from '@/lib/leave/entitlement-grants';
 import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
 
 type ServiceClient = AppSupabase;
 
+export type ApprovalForwardFundBalance = {
+  fundName: string;
+  fundPool: number;
+  daysThisRequest: number;
+  usedOnFund: number;
+  remaining: number;
+};
+
 function formatPoolRemaining(remaining: number, pool: number): string {
   return `${formatAllocatedDays(remaining)} of ${formatAllocatedDays(pool)} days remaining`;
+}
+
+function daysOnGrantFromRequest(
+  allocRows: { grant_id: string; working_days: number | string }[] | null,
+  grantId: string,
+  fallbackWorkingDays: number
+): number {
+  if (!allocRows?.length) return fallbackWorkingDays;
+  const onGrant = allocRows
+    .filter((r) => r.grant_id === grantId)
+    .reduce((s, r) => s + Number(r.working_days || 0), 0);
+  return onGrant > 0 ? onGrant : fallbackWorkingDays;
+}
+
+function pickAnnualGrantsForRequest(
+  grants: AnnualGrantRow[],
+  startDate: string,
+  allocRows: { grant_id: string }[] | null
+): AnnualGrantRow[] {
+  const grantById = new Map(grants.map((g) => [g.id, g]));
+  const fromAlloc = [...new Set((allocRows || []).map((r) => r.grant_id))]
+    .map((id) => grantById.get(id))
+    .filter((g): g is AnnualGrantRow => Boolean(g));
+
+  if (fromAlloc.length > 0) return fromAlloc;
+
+  const eligible = grantsEligibleForStartDate(grants, startDate);
+  if (eligible.length > 0) return eligible;
+
+  return grants.length > 0 ? [grants[0]] : [];
+}
+
+async function resolveAnnualFundBalances(
+  service: ServiceClient,
+  params: {
+    userId: string;
+    projectId: string;
+    leaveRequestId: string;
+    startDate: string;
+    workingDaysThisRequest: number;
+  }
+): Promise<ApprovalForwardFundBalance[]> {
+  const { data: allocRows } = await service
+    .from('leave_request_grant_allocations')
+    .select('grant_id, working_days')
+    .eq('leave_request_id', params.leaveRequestId);
+
+  const grants = await fetchGrantsForMember(service, params.projectId, params.userId);
+  const targetGrants = pickAnnualGrantsForRequest(
+    grants,
+    params.startDate,
+    allocRows as { grant_id: string }[] | null
+  );
+
+  const balances: ApprovalForwardFundBalance[] = [];
+
+  for (const grant of targetGrants) {
+    const usedOnFund = await sumAllocatedToGrant(service, grant.id, {
+      statuses: ['approved'],
+    });
+    const pool = Number(grant.days_allocated || 0);
+    const remaining = Math.max(0, grantRemaining(grant, usedOnFund));
+    const daysThisRequest = daysOnGrantFromRequest(
+      allocRows as { grant_id: string; working_days: number | string }[] | null,
+      grant.id,
+      params.workingDaysThisRequest
+    );
+
+    balances.push({
+      fundName: grant.label || 'Annual fund',
+      fundPool: pool,
+      daysThisRequest,
+      usedOnFund,
+      remaining,
+    });
+  }
+
+  return balances;
 }
 
 /** Project-scoped balance (or annual fund), not global user_leave_balances. */
@@ -23,9 +111,15 @@ async function resolveLeaveApprovalBalanceSummary(
     userId: string;
     projectId: string;
     leaveRequestId: string;
+    startDate: string;
+    workingDaysThisRequest: number;
     leaveType: 'annual' | 'sick';
   }
-): Promise<{ summary: string; balanceLabel: string }> {
+): Promise<{
+  fundBalances: ApprovalForwardFundBalance[];
+  summary: string;
+  balanceLabel: string;
+}> {
   if (params.leaveType === 'sick') {
     const { data: pm } = await service
       .from('project_members')
@@ -35,55 +129,38 @@ async function resolveLeaveApprovalBalanceSummary(
       .maybeSingle();
 
     if (!pm) {
-      return { summary: 'Balance not available.', balanceLabel: 'Sick leave remaining' };
+      return {
+        fundBalances: [],
+        summary: 'Balance not available.',
+        balanceLabel: 'Sick leave remaining',
+      };
     }
 
     const pool = Number(pm.sick_leave_total || 0);
     const used = Number(pm.sick_leave_used || 0);
     const remaining = Math.max(0, pool - used);
     return {
+      fundBalances: [],
       summary: formatPoolRemaining(remaining, pool),
       balanceLabel: 'Sick leave remaining',
     };
   }
 
-  const { data: allocRows } = await service
-    .from('leave_request_grant_allocations')
-    .select('grant_id')
-    .eq('leave_request_id', params.leaveRequestId);
+  const fundBalances = await resolveAnnualFundBalances(service, params);
 
-  const grantIds = [...new Set((allocRows || []).map((r) => r.grant_id as string))];
-  const grants = await fetchGrantsForMember(service, params.projectId, params.userId);
-  const grantById = new Map(grants.map((g) => [g.id, g]));
+  if (fundBalances.length > 0) {
+    const summary = fundBalances
+      .map(
+        (b) =>
+          `${b.fundName}: ${formatAllocatedDays(b.daysThisRequest)} day(s) from this approval · ${formatPoolRemaining(b.remaining, b.fundPool)}`
+      )
+      .join(' · ');
 
-  if (grantIds.length > 0) {
-    const parts: string[] = [];
-    for (const grantId of grantIds) {
-      const grant = grantById.get(grantId);
-      if (!grant) continue;
-      const consumed = await sumAllocatedToGrant(service, grantId);
-      const pool = Number(grant.days_allocated || 0);
-      const remaining = Math.max(0, grantRemaining(grant, consumed));
-      const prefix = grant.label ? `${grant.label}: ` : '';
-      parts.push(`${prefix}${formatPoolRemaining(remaining, pool)}`);
-    }
-    if (parts.length > 0) {
-      return {
-        summary: parts.join(' · '),
-        balanceLabel:
-          parts.length === 1 ? 'Annual leave remaining' : 'Annual leave remaining (by fund)',
-      };
-    }
-  }
-
-  if (grants.length > 0) {
-    const grant = grants[0];
-    const consumed = await sumAllocatedToGrant(service, grant.id);
-    const pool = Number(grant.days_allocated || 0);
-    const remaining = Math.max(0, grantRemaining(grant, consumed));
     return {
-      summary: formatPoolRemaining(remaining, pool),
-      balanceLabel: grant.label ? `Annual leave remaining (${grant.label})` : 'Annual leave remaining',
+      fundBalances,
+      summary,
+      balanceLabel:
+        fundBalances.length === 1 ? 'Annual fund (after approval)' : 'Annual funds (after approval)',
     };
   }
 
@@ -95,7 +172,11 @@ async function resolveLeaveApprovalBalanceSummary(
     .maybeSingle();
 
   if (!pm) {
-    return { summary: 'Balance not available.', balanceLabel: 'Annual leave remaining' };
+    return {
+      fundBalances: [],
+      summary: 'Balance not available.',
+      balanceLabel: 'Annual leave remaining',
+    };
   }
 
   const pool =
@@ -103,6 +184,7 @@ async function resolveLeaveApprovalBalanceSummary(
   const used = Number(pm.annual_leave_used || 0);
   const remaining = Math.max(0, pool - used);
   return {
+    fundBalances: [],
     summary: formatPoolRemaining(remaining, pool),
     balanceLabel: 'Annual leave remaining',
   };
@@ -187,12 +269,15 @@ export async function sendLeaveApprovalForwardCopies(
   const dateRange = formatDateRange(lr.start_date as string, lr.end_date as string);
   const wd = Number(lr.working_days_count ?? 0);
   const leaveType = t as 'annual' | 'sick';
-  const { summary: remainingSummary, balanceLabel } = await resolveLeaveApprovalBalanceSummary(
+  const { fundBalances, summary: remainingSummary, balanceLabel } =
+    await resolveLeaveApprovalBalanceSummary(
     service,
     {
       userId: lr.user_id as string,
       projectId: lr.project_id as string,
       leaveRequestId: params.leaveRequestId,
+      startDate: lr.start_date as string,
+      workingDaysThisRequest: wd,
       leaveType,
     }
   );
@@ -208,6 +293,7 @@ export async function sendLeaveApprovalForwardCopies(
     dateRange,
     remainingSummary,
     balanceLabel,
+    fundBalances,
   });
 
   for (const to of recipients) {
