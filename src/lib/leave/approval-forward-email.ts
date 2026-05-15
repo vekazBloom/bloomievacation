@@ -3,38 +3,108 @@ import { sendEmail } from '@/lib/email/resend';
 import { formatLeaveTypeLabel } from '@/lib/email/format';
 import { formatDateRange } from '@/lib/utils';
 import type { AppSupabase } from '@/lib/supabase/app-client';
-import type { UserLeaveBalance } from '@/lib/leave/global-balance';
+import {
+  fetchGrantsForMember,
+  grantRemaining,
+  sumAllocatedToGrant,
+} from '@/lib/leave/entitlement-grants';
+import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
 
 type ServiceClient = AppSupabase;
 
-function formatApprovedLeaveBalance(
-  b: UserLeaveBalance | null,
-  leaveType: 'annual' | 'sick'
-): { summary: string; balanceLabel: string } {
-  if (!b) {
-    return {
-      summary: 'Balance not available.',
-      balanceLabel: 'Days remaining',
-    };
-  }
+function formatPoolRemaining(remaining: number, pool: number): string {
+  return `${formatAllocatedDays(remaining)} of ${formatAllocatedDays(pool)} days remaining`;
+}
 
-  if (leaveType === 'annual') {
-    const pool =
-      Number(b.annual_leave_total || 0) + Number(b.annual_leave_carried_over || 0);
-    const used = Number(b.annual_leave_used || 0);
+/** Project-scoped balance (or annual fund), not global user_leave_balances. */
+async function resolveLeaveApprovalBalanceSummary(
+  service: ServiceClient,
+  params: {
+    userId: string;
+    projectId: string;
+    leaveRequestId: string;
+    leaveType: 'annual' | 'sick';
+  }
+): Promise<{ summary: string; balanceLabel: string }> {
+  if (params.leaveType === 'sick') {
+    const { data: pm } = await service
+      .from('project_members')
+      .select('sick_leave_total, sick_leave_used')
+      .eq('project_id', params.projectId)
+      .eq('user_id', params.userId)
+      .maybeSingle();
+
+    if (!pm) {
+      return { summary: 'Balance not available.', balanceLabel: 'Sick leave remaining' };
+    }
+
+    const pool = Number(pm.sick_leave_total || 0);
+    const used = Number(pm.sick_leave_used || 0);
     const remaining = Math.max(0, pool - used);
     return {
-      summary: `${remaining.toFixed(1)} of ${pool.toFixed(1)} days remaining`,
-      balanceLabel: 'Annual leave remaining',
+      summary: formatPoolRemaining(remaining, pool),
+      balanceLabel: 'Sick leave remaining',
     };
   }
 
-  const pool = Number(b.sick_leave_total || 0);
-  const used = Number(b.sick_leave_used || 0);
+  const { data: allocRows } = await service
+    .from('leave_request_grant_allocations')
+    .select('grant_id')
+    .eq('leave_request_id', params.leaveRequestId);
+
+  const grantIds = [...new Set((allocRows || []).map((r) => r.grant_id as string))];
+  const grants = await fetchGrantsForMember(service, params.projectId, params.userId);
+  const grantById = new Map(grants.map((g) => [g.id, g]));
+
+  if (grantIds.length > 0) {
+    const parts: string[] = [];
+    for (const grantId of grantIds) {
+      const grant = grantById.get(grantId);
+      if (!grant) continue;
+      const consumed = await sumAllocatedToGrant(service, grantId);
+      const pool = Number(grant.days_allocated || 0);
+      const remaining = Math.max(0, grantRemaining(grant, consumed));
+      const prefix = grant.label ? `${grant.label}: ` : '';
+      parts.push(`${prefix}${formatPoolRemaining(remaining, pool)}`);
+    }
+    if (parts.length > 0) {
+      return {
+        summary: parts.join(' · '),
+        balanceLabel:
+          parts.length === 1 ? 'Annual leave remaining' : 'Annual leave remaining (by fund)',
+      };
+    }
+  }
+
+  if (grants.length > 0) {
+    const grant = grants[0];
+    const consumed = await sumAllocatedToGrant(service, grant.id);
+    const pool = Number(grant.days_allocated || 0);
+    const remaining = Math.max(0, grantRemaining(grant, consumed));
+    return {
+      summary: formatPoolRemaining(remaining, pool),
+      balanceLabel: grant.label ? `Annual leave remaining (${grant.label})` : 'Annual leave remaining',
+    };
+  }
+
+  const { data: pm } = await service
+    .from('project_members')
+    .select('annual_leave_total, annual_leave_used, annual_leave_carried_over')
+    .eq('project_id', params.projectId)
+    .eq('user_id', params.userId)
+    .maybeSingle();
+
+  if (!pm) {
+    return { summary: 'Balance not available.', balanceLabel: 'Annual leave remaining' };
+  }
+
+  const pool =
+    Number(pm.annual_leave_total || 0) + Number(pm.annual_leave_carried_over || 0);
+  const used = Number(pm.annual_leave_used || 0);
   const remaining = Math.max(0, pool - used);
   return {
-    summary: `${remaining.toFixed(1)} of ${pool.toFixed(1)} days remaining`,
-    balanceLabel: 'Sick leave remaining',
+    summary: formatPoolRemaining(remaining, pool),
+    balanceLabel: 'Annual leave remaining',
   };
 }
 
@@ -92,7 +162,7 @@ export async function sendLeaveApprovalForwardCopies(
   const recipients = [...new Set((forwardRows || []).map((r) => (r.email as string).trim()).filter(Boolean))];
   if (recipients.length === 0) return { error: null };
 
-  const [{ data: employee }, { data: approver }, { data: project }, { data: balance }, { data: memberships }] =
+  const [{ data: employee }, { data: approver }, { data: project }, { data: memberships }] =
     await Promise.all([
       service.from('users').select('name').eq('id', lr.user_id as string).maybeSingle(),
       service.from('users').select('name').eq('id', params.approverUserId).maybeSingle(),
@@ -100,13 +170,6 @@ export async function sendLeaveApprovalForwardCopies(
         .from('projects')
         .select('name, is_archived')
         .eq('id', lr.project_id as string)
-        .maybeSingle(),
-      service
-        .from('user_leave_balances')
-        .select(
-          'annual_leave_total, annual_leave_used, annual_leave_carried_over, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used'
-        )
-        .eq('user_id', lr.user_id as string)
         .maybeSingle(),
       service
         .from('project_members')
@@ -124,9 +187,14 @@ export async function sendLeaveApprovalForwardCopies(
   const dateRange = formatDateRange(lr.start_date as string, lr.end_date as string);
   const wd = Number(lr.working_days_count ?? 0);
   const leaveType = t as 'annual' | 'sick';
-  const { summary: remainingSummary, balanceLabel } = formatApprovedLeaveBalance(
-    balance as UserLeaveBalance | null,
-    leaveType
+  const { summary: remainingSummary, balanceLabel } = await resolveLeaveApprovalBalanceSummary(
+    service,
+    {
+      userId: lr.user_id as string,
+      projectId: lr.project_id as string,
+      leaveRequestId: params.leaveRequestId,
+      leaveType,
+    }
   );
 
   const subject = `[BloomieVacation] Approved ${formatLeaveTypeLabel(t)} — ${employeeName} (${wd} day${wd === 1 ? '' : 's'})`;
