@@ -246,7 +246,7 @@ export async function sendLeaveApprovalForwardCopies(
 
   const [{ data: employee }, { data: approver }, { data: project }, { data: memberships }] =
     await Promise.all([
-      service.from('users').select('name').eq('id', lr.user_id as string).maybeSingle(),
+      service.from('users').select('name, email').eq('id', lr.user_id as string).maybeSingle(),
       service.from('users').select('name').eq('id', params.approverUserId).maybeSingle(),
       service
         .from('projects')
@@ -265,6 +265,7 @@ export async function sendLeaveApprovalForwardCopies(
   );
 
   const employeeName = (employee as { name?: string } | null)?.name || 'Employee';
+  const employeeEmail = (employee as { email?: string } | null)?.email?.trim() || '—';
   const approverName = (approver as { name?: string } | null)?.name || 'Approver';
   const dateRange = formatDateRange(lr.start_date as string, lr.end_date as string);
   const wd = Number(lr.working_days_count ?? 0);
@@ -287,6 +288,7 @@ export async function sendLeaveApprovalForwardCopies(
   const react = LeaveApprovalForwardEmail({
     approverName,
     employeeName,
+    employeeEmail,
     projectNames: projectNamesStr,
     leaveTypeLabel: formatLeaveTypeLabel(t),
     workingDays: wd,

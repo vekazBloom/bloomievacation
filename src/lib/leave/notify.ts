@@ -106,6 +106,7 @@ export async function notifyRequestDecision(
     await sendRequestApprovedEmail({
       to: employee.email,
       employeeName: employee.name,
+      employeeEmail: employee.email,
       projectName: params.projectName,
       leaveType: params.leaveType,
       startDate: params.startDate,

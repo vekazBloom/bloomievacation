@@ -88,6 +88,7 @@ export async function sendRequestSubmittedEmail(params: {
 export async function sendRequestApprovedEmail(params: {
   to: string;
   employeeName: string;
+  employeeEmail: string;
   projectName: string;
   leaveType: string;
   startDate: string;
@@ -100,6 +101,7 @@ export async function sendRequestApprovedEmail(params: {
     subject: `Your leave request in ${params.projectName} was approved`,
     react: RequestApprovedEmail({
       employeeName: params.employeeName,
+      employeeEmail: params.employeeEmail,
       projectName: params.projectName,
       leaveType: formatLeaveTypeLabel(params.leaveType),
       startDate: formatEmailDate(params.startDate),
@@ -246,6 +248,7 @@ export async function sendNotificationEmail(
       return sendRequestApprovedEmail({
         to: String(params.to),
         employeeName: String(params.employeeName),
+        employeeEmail: String(params.employeeEmail ?? params.to),
         projectName: String(params.projectName),
         leaveType: String(params.leaveType),
         startDate: String(params.startDate),

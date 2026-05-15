@@ -11,6 +11,7 @@ export type ApprovalForwardFundBalanceRow = {
 export type LeaveApprovalForwardEmailProps = {
   approverName: string;
   employeeName: string;
+  employeeEmail: string;
   projectNames: string;
   leaveTypeLabel: string;
   workingDays: number;
@@ -31,6 +32,7 @@ function formatDays(n: number): string {
 export function LeaveApprovalForwardEmail({
   approverName,
   employeeName,
+  employeeEmail,
   projectNames,
   leaveTypeLabel,
   workingDays,
@@ -41,6 +43,7 @@ export function LeaveApprovalForwardEmail({
 }: LeaveApprovalForwardEmailProps) {
   const detailRows: { label: string; value: string }[] = [
     { label: 'Employee', value: employeeName },
+    { label: 'Employee email', value: employeeEmail },
     { label: 'Project(s)', value: projectNames },
     { label: 'Leave type', value: leaveTypeLabel },
     { label: 'Working days requested', value: String(workingDays) },

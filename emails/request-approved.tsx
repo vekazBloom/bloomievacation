@@ -2,6 +2,7 @@ import { EmailCallout, EmailDetails, EmailLayout } from './components/email-layo
 
 export type RequestApprovedEmailProps = {
   employeeName: string;
+  employeeEmail: string;
   projectName: string;
   leaveType: string;
   startDate: string;
@@ -11,6 +12,7 @@ export type RequestApprovedEmailProps = {
 
 export function RequestApprovedEmail({
   employeeName,
+  employeeEmail,
   projectName,
   leaveType,
   startDate,
@@ -28,6 +30,7 @@ export function RequestApprovedEmail({
       <EmailCallout tone="success">Your time off is confirmed and visible on the team calendar.</EmailCallout>
       <EmailDetails
         rows={[
+          { label: 'Your email', value: employeeEmail },
           { label: 'Project', value: projectName },
           { label: 'Leave type', value: leaveType },
           { label: 'From', value: startDate },
