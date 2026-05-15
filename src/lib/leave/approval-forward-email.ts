@@ -220,7 +220,7 @@ function collectActiveProjectNames(
  */
 export async function sendLeaveApprovalForwardCopies(
   service: ServiceClient,
-  params: { approverUserId: string; leaveRequestId: string }
+  params: { approverUserId: string; leaveRequestId: string; resend?: boolean }
 ): Promise<{ error: string | null }> {
   const { data: lr } = await service
     .from('leave_requests')
@@ -231,7 +231,7 @@ export async function sendLeaveApprovalForwardCopies(
     .maybeSingle();
 
   if (!lr || lr.status !== 'approved') return { error: null };
-  if (lr.approval_forward_sent_at) return { error: null };
+  if (lr.approval_forward_sent_at && !params.resend) return { error: null };
   const t = lr.type as string;
   if (t !== 'annual' && t !== 'sick') return { error: null };
 

@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { formatDateRange } from '@/lib/utils';
+import { formatDate, formatDateRange } from '@/lib/utils';
 
 type ForwardAddress = {
   id?: string;
@@ -14,16 +15,20 @@ type ForwardAddress = {
   sendEnabled: boolean;
 };
 
-type PendingRow = {
+type ApprovalRow = {
   id: string;
   startDate: string;
   endDate: string;
   typeLabel: string;
   workingDays: number;
   decidedAt: string | null;
+  forwardSentAt: string | null;
+  forwardSent: boolean;
   employeeName: string;
   projectName: string;
 };
+
+type SendFilter = 'not_sent' | 'sent' | 'all';
 
 function parseNewEmails(raw: string): string[] {
   return [
@@ -36,13 +41,21 @@ function parseNewEmails(raw: string): string[] {
   ];
 }
 
+function selectionForRows(rows: ApprovalRow[]): Record<string, boolean> {
+  const next: Record<string, boolean> = {};
+  for (const row of rows) next[row.id] = true;
+  return next;
+}
+
 export function LeaveApprovalForwardingPanel() {
   const [addresses, setAddresses] = useState<ForwardAddress[]>([]);
   const [newEmailInput, setNewEmailInput] = useState('');
-  const [pending, setPending] = useState<PendingRow[]>([]);
+  const [requests, setRequests] = useState<ApprovalRow[]>([]);
+  const [sendFilter, setSendFilter] = useState<SendFilter>('not_sent');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -64,8 +77,11 @@ export function LeaveApprovalForwardingPanel() {
           sendEnabled: a.sendEnabled,
         }))
       );
-      setPending(body.pending as PendingRow[]);
-      setSelected({});
+      const loaded = (body.requests ?? body.pending) as ApprovalRow[];
+      setRequests(loaded);
+      const notSent = loaded.filter((r) => !r.forwardSent);
+      setSelected(selectionForRows(notSent));
+      setSendFilter('not_sent');
     } finally {
       setLoading(false);
     }
@@ -75,17 +91,33 @@ export function LeaveApprovalForwardingPanel() {
     void load();
   }, [load]);
 
-  const pendingIds = useMemo(() => pending.map((p) => p.id), [pending]);
-  const allSelected =
-    pendingIds.length > 0 && pendingIds.every((id) => selected[id]);
+  const filteredRequests = useMemo(() => {
+    if (sendFilter === 'sent') return requests.filter((r) => r.forwardSent);
+    if (sendFilter === 'not_sent') return requests.filter((r) => !r.forwardSent);
+    return requests;
+  }, [requests, sendFilter]);
+
+  const filteredIds = useMemo(() => filteredRequests.map((r) => r.id), [filteredRequests]);
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selected[id]);
   const selectedIds = useMemo(
-    () => pendingIds.filter((id) => selected[id]),
-    [pendingIds, selected]
+    () => filteredIds.filter((id) => selected[id]),
+    [filteredIds, selected]
+  );
+  const selectedHasNotSent = useMemo(
+    () => selectedIds.some((id) => !requests.find((r) => r.id === id)?.forwardSent),
+    [selectedIds, requests]
+  );
+  const selectedHasSent = useMemo(
+    () => selectedIds.some((id) => requests.find((r) => r.id === id)?.forwardSent),
+    [selectedIds, requests]
   );
   const enabledCount = useMemo(
     () => addresses.filter((a) => a.sendEnabled).length,
     [addresses]
   );
+  const notSentCount = useMemo(() => requests.filter((r) => !r.forwardSent).length, [requests]);
+  const sentCount = useMemo(() => requests.filter((r) => r.forwardSent).length, [requests]);
 
   function addEmailsFromInput() {
     const incoming = parseNewEmails(newEmailInput);
@@ -160,16 +192,15 @@ export function LeaveApprovalForwardingPanel() {
     }
   }
 
-  async function sendSelected() {
-    if (selectedIds.length === 0) return;
-    setSending(true);
+  async function sendRequestIds(requestIds: string[], successMessage: string) {
+    if (requestIds.length === 0) return;
     setMessage(null);
     setError(null);
     try {
       const res = await fetch('/api/profile/leave-approval-forwarding', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestIds: selectedIds }),
+        body: JSON.stringify({ requestIds }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -180,18 +211,54 @@ export function LeaveApprovalForwardingPanel() {
       if (failed > 0) {
         setError(`${failed} request(s) could not be sent (check Resend / logs).`);
       } else {
-        setMessage(`Sent ${selectedIds.length} summary email(s).`);
+        setMessage(successMessage);
       }
       await load();
+    } catch {
+      setError('Send failed');
+    }
+  }
+
+  async function sendSelected() {
+    if (selectedIds.length === 0) return;
+    setSending(true);
+    try {
+      const label =
+        selectedHasSent && !selectedHasNotSent
+          ? `Resent ${selectedIds.length} summary email(s).`
+          : `Sent ${selectedIds.length} summary email(s).`;
+      await sendRequestIds(selectedIds, label);
     } finally {
       setSending(false);
     }
   }
 
-  function toggleAll(checked: boolean) {
-    const next: Record<string, boolean> = {};
-    for (const id of pendingIds) next[id] = checked;
-    setSelected(next);
+  async function resendOne(id: string) {
+    setResendingId(id);
+    try {
+      await sendRequestIds([id], 'Summary email resent.');
+    } finally {
+      setResendingId(null);
+    }
+  }
+
+  function toggleAllFiltered(checked: boolean) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const id of filteredIds) next[id] = checked;
+      return next;
+    });
+  }
+
+  function applyFilter(next: SendFilter) {
+    setSendFilter(next);
+    const rows =
+      next === 'sent'
+        ? requests.filter((r) => r.forwardSent)
+        : next === 'not_sent'
+          ? requests.filter((r) => !r.forwardSent)
+          : requests;
+    setSelected(selectionForRows(rows));
   }
 
   if (loading) {
@@ -291,80 +358,164 @@ export function LeaveApprovalForwardingPanel() {
 
       <Card>
         <div className="border-b border-border px-6 py-4">
-          <h2 className="font-display text-lg">Approved leave — not yet forwarded</h2>
+          <h2 className="font-display text-lg">Your approved leave</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            These are past approvals you made (annual or sick) before forwarding was enabled. Select rows and
-            send the same summary email now.
+            All annual and sick requests you approved. Filter by whether the summary email was sent, then send
+            or resend.
           </p>
         </div>
         <CardContent className="p-0">
-          {pending.length === 0 ? (
-            <p className="px-6 py-8 text-center text-sm text-muted-foreground">Nothing pending.</p>
+          {requests.length === 0 ? (
+            <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+              No approved annual or sick leave yet.
+            </p>
           ) : (
             <>
-              <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
-                <div className="flex items-center gap-2">
-                  <input
-                    id="select-all-forward"
-                    type="checkbox"
-                    className="h-4 w-4 rounded border border-input"
-                    checked={allSelected}
-                    onChange={(e) => toggleAll(e.target.checked)}
-                  />
-                  <Label htmlFor="select-all-forward" className="text-sm font-normal cursor-pointer">
-                    Select all
-                  </Label>
+              <div className="flex flex-col gap-3 border-b border-border px-6 py-3 sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="Email send status filter">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={sendFilter === 'not_sent' ? 'default' : 'outline'}
+                    onClick={() => applyFilter('not_sent')}
+                  >
+                    Not sent ({notSentCount})
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={sendFilter === 'sent' ? 'default' : 'outline'}
+                    onClick={() => applyFilter('sent')}
+                  >
+                    Sent ({sentCount})
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={sendFilter === 'all' ? 'default' : 'outline'}
+                    onClick={() => applyFilter('all')}
+                  >
+                    All ({requests.length})
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={sending || selectedIds.length === 0 || enabledCount === 0}
-                  onClick={() => void sendSelected()}
-                >
-                  {sending ? 'Sending…' : `Send selected (${selectedIds.length})`}
-                </Button>
-                {enabledCount === 0 ? (
-                  <p className="text-xs text-muted-foreground">Enable at least one address above to send.</p>
-                ) : null}
+
+                <div className="flex flex-wrap items-center gap-3 sm:ml-auto">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="select-all-forward"
+                      type="checkbox"
+                      className="h-4 w-4 rounded border border-input"
+                      checked={allFilteredSelected}
+                      onChange={(e) => toggleAllFiltered(e.target.checked)}
+                    />
+                    <Label htmlFor="select-all-forward" className="text-sm font-normal cursor-pointer">
+                      Select all in view
+                    </Label>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={sending || selectedIds.length === 0 || enabledCount === 0}
+                    onClick={() => void sendSelected()}
+                  >
+                    {sending
+                      ? 'Sending…'
+                      : selectedHasSent && !selectedHasNotSent
+                        ? `Resend selected (${selectedIds.length})`
+                        : `Send selected (${selectedIds.length})`}
+                  </Button>
+                </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-muted-foreground">
-                      <th className="w-10 px-4 py-2" />
-                      <th className="px-4 py-2 font-medium">Employee</th>
-                      <th className="px-4 py-2 font-medium">Project</th>
-                      <th className="px-4 py-2 font-medium">Type</th>
-                      <th className="px-4 py-2 font-medium">Days</th>
-                      <th className="px-4 py-2 font-medium">Dates</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pending.map((row) => (
-                      <tr key={row.id} className="border-b border-border/60">
-                        <td className="px-4 py-2">
-                          <input
-                            type="checkbox"
-                            className="h-4 w-4 rounded border border-input"
-                            checked={Boolean(selected[row.id])}
-                            onChange={(e) =>
-                              setSelected((prev) => ({ ...prev, [row.id]: e.target.checked }))
-                            }
-                            aria-label={`Select ${row.employeeName}`}
-                          />
-                        </td>
-                        <td className="px-4 py-2 font-medium">{row.employeeName}</td>
-                        <td className="px-4 py-2">{row.projectName}</td>
-                        <td className="px-4 py-2">{row.typeLabel}</td>
-                        <td className="px-4 py-2">{row.workingDays}</td>
-                        <td className="px-4 py-2 text-muted-foreground">
-                          {formatDateRange(row.startDate, row.endDate)}
-                        </td>
+
+              {enabledCount === 0 ? (
+                <p className="border-b border-border px-6 py-2 text-xs text-muted-foreground">
+                  Enable at least one address above to send.
+                </p>
+              ) : null}
+
+              {filteredRequests.length === 0 ? (
+                <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  No requests in this filter.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-muted-foreground">
+                        <th className="w-10 px-4 py-2" />
+                        <th className="px-4 py-2 font-medium">Status</th>
+                        <th className="px-4 py-2 font-medium">Employee</th>
+                        <th className="px-4 py-2 font-medium">Project</th>
+                        <th className="px-4 py-2 font-medium">Type</th>
+                        <th className="px-4 py-2 font-medium">Days</th>
+                        <th className="px-4 py-2 font-medium">Dates</th>
+                        <th className="px-4 py-2 font-medium text-right">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {filteredRequests.map((row) => (
+                        <tr key={row.id} className="border-b border-border/60">
+                          <td className="px-4 py-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border border-input"
+                              checked={Boolean(selected[row.id])}
+                              onChange={(e) =>
+                                setSelected((prev) => ({ ...prev, [row.id]: e.target.checked }))
+                              }
+                              aria-label={`Select ${row.employeeName}`}
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            {row.forwardSent ? (
+                              <Badge variant="success" title={row.forwardSentAt || undefined}>
+                                Sent
+                              </Badge>
+                            ) : (
+                              <Badge variant="warning">Not sent</Badge>
+                            )}
+                            {row.forwardSentAt ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {formatDate(row.forwardSentAt, 'short')}
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-2 font-medium">{row.employeeName}</td>
+                          <td className="px-4 py-2">{row.projectName}</td>
+                          <td className="px-4 py-2">{row.typeLabel}</td>
+                          <td className="px-4 py-2">{row.workingDays}</td>
+                          <td className="px-4 py-2 text-muted-foreground">
+                            {formatDateRange(row.startDate, row.endDate)}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            {row.forwardSent ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={resendingId === row.id || enabledCount === 0}
+                                onClick={() => void resendOne(row.id)}
+                              >
+                                {resendingId === row.id ? 'Sending…' : 'Resend'}
+                              </Button>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={sending || enabledCount === 0}
+                                onClick={() => void sendRequestIds([row.id], 'Summary email sent.')}
+                              >
+                                Send
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
         </CardContent>

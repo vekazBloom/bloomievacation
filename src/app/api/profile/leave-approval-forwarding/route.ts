@@ -45,7 +45,7 @@ export async function GET() {
   if (authError) return NextResponse.json({ error: authError.message }, { status: 401 });
   if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-  const [{ data: forwardRows, error: fe }, { data: pending, error: pe }] = await Promise.all([
+  const [{ data: forwardRows, error: fe }, { data: approvalRows, error: pe }] = await Promise.all([
     supabase
       .from('user_leave_approval_forward_emails')
       .select('id, email, send_enabled')
@@ -54,12 +54,11 @@ export async function GET() {
     supabase
       .from('leave_requests')
       .select(
-        'id, start_date, end_date, type, working_days_count, decided_at, users!leave_requests_user_id_fkey(name), projects(name)'
+        'id, start_date, end_date, type, working_days_count, decided_at, approval_forward_sent_at, users!leave_requests_user_id_fkey(name), projects(name)'
       )
       .eq('decided_by', user.id)
       .eq('status', 'approved')
       .in('type', ['annual', 'sick'])
-      .is('approval_forward_sent_at', null)
       .order('decided_at', { ascending: false }),
   ]);
 
@@ -68,11 +67,12 @@ export async function GET() {
 
   const addresses = mapForwardRows(forwardRows as { id: string; email: string; send_enabled: boolean }[] | null);
 
-  const pendingOut = (pending || []).map((row) => {
+  const requestsOut = (approvalRows || []).map((row) => {
     const u = row.users as { name?: string } | { name?: string }[] | null;
     const p = row.projects as { name?: string } | { name?: string }[] | null;
     const employeeName = Array.isArray(u) ? u[0]?.name : u?.name;
     const projectName = Array.isArray(p) ? p[0]?.name : p?.name;
+    const forwardSentAt = row.approval_forward_sent_at as string | null;
     return {
       id: row.id as string,
       startDate: row.start_date as string,
@@ -81,12 +81,14 @@ export async function GET() {
       typeLabel: formatLeaveTypeLabel(row.type as string),
       workingDays: Number(row.working_days_count ?? 0),
       decidedAt: row.decided_at as string | null,
+      forwardSentAt,
+      forwardSent: Boolean(forwardSentAt),
       employeeName: employeeName || '—',
       projectName: projectName || '—',
     };
   });
 
-  return NextResponse.json({ addresses, pending: pendingOut });
+  return NextResponse.json({ addresses, requests: requestsOut, pending: requestsOut.filter((r) => !r.forwardSent) });
 }
 
 export async function PUT(request: NextRequest) {
@@ -174,22 +176,20 @@ export async function POST(request: NextRequest) {
 
   const { data: rows, error } = await supabase
     .from('leave_requests')
-    .select('id')
+    .select('id, approval_forward_sent_at')
     .in('id', parsed.data.requestIds)
     .eq('decided_by', user.id)
     .eq('status', 'approved')
-    .in('type', ['annual', 'sick'])
-    .is('approval_forward_sent_at', null);
+    .in('type', ['annual', 'sick']);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const allowed = new Set((rows || []).map((r) => r.id as string));
-  const invalid = parsed.data.requestIds.filter((id) => !allowed.has(id));
+  const rowById = new Map((rows || []).map((r) => [r.id as string, r]));
+  const invalid = parsed.data.requestIds.filter((id) => !rowById.has(id));
   if (invalid.length > 0) {
     return NextResponse.json(
       {
-        error:
-          'Some requests are not eligible (must be annual/sick, approved by you, and not already forwarded).',
+        error: 'Some requests are not eligible (must be annual/sick and approved by you).',
       },
       { status: 400 }
     );
@@ -199,9 +199,11 @@ export async function POST(request: NextRequest) {
   const results: { id: string; ok: boolean; error?: string }[] = [];
 
   for (const id of parsed.data.requestIds) {
+    const row = rowById.get(id);
     const r = await sendLeaveApprovalForwardCopies(service, {
       approverUserId: user.id,
       leaveRequestId: id,
+      resend: Boolean(row?.approval_forward_sent_at),
     });
     results.push({ id, ok: !r.error, error: r.error || undefined });
   }
