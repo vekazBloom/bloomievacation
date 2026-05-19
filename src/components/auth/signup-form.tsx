@@ -30,11 +30,6 @@ function inviteAcceptPath(token: string) {
   return `/api/invitations/accept?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent('/dashboard')}`;
 }
 
-function emailConfirmRedirectUrl(token: string) {
-  const next = inviteAcceptPath(token);
-  return `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
-}
-
 export function SignupForm({
   prefilledEmail,
   inviteToken,
@@ -45,8 +40,6 @@ export function SignupForm({
   const router = useRouter();
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(false);
-  const [awaitingEmailConfirm, setAwaitingEmailConfirm] = useState(false);
-  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   const {
     register,
@@ -64,114 +57,70 @@ export function SignupForm({
     }
 
     setIsLoading(true);
-    setAwaitingEmailConfirm(false);
-
     const normalizedEmail = values.email.trim().toLowerCase();
 
-    const { data, error } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password: values.password,
-      options: {
-        data: { name: values.name },
-        emailRedirectTo: emailConfirmRedirectUrl(inviteToken),
-      },
+    const signupRes = await fetch('/api/auth/invite-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: inviteToken,
+        email: normalizedEmail,
+        password: values.password,
+        name: values.name,
+      }),
     });
 
-    if (error) {
-      const msg = error.message || 'Failed to create account';
-      if (msg.toLowerCase().includes('already registered')) {
-        const { error: resendError } = await supabase.auth.resend({
-          type: 'signup',
-          email: normalizedEmail,
-          options: {
-            emailRedirectTo: emailConfirmRedirectUrl(inviteToken),
-          },
-        });
+    const signupBody = await signupRes.json().catch(() => ({}));
 
-        if (!resendError) {
-          setAwaitingEmailConfirm(true);
-          setPendingEmail(normalizedEmail);
-          toast.success('Check your email to confirm your account.');
-          setIsLoading(false);
-          return;
-        }
-
-        toast.error('This email already has an account. Sign in to accept the invite.');
+    if (!signupRes.ok) {
+      setIsLoading(false);
+      if (signupRes.status === 409) {
+        toast.error(signupBody.error || 'Account already exists. Sign in instead.');
         router.push(
           `/login?redirectTo=${encodeURIComponent(inviteAcceptPath(inviteToken))}&email=${encodeURIComponent(normalizedEmail)}`
         );
-      } else {
-        toast.error(msg);
-      }
-      setIsLoading(false);
-      return;
-    }
-
-    if (data.user) {
-      const profileRes = await fetch('/api/auth/invite-signup-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: data.user.id,
-          email: normalizedEmail,
-          name: values.name,
-        }),
-      });
-      if (!profileRes.ok) {
-        const body = await profileRes.json().catch(() => ({}));
-        console.error('Profile creation error:', body.error);
-      }
-    }
-
-    if (inviteToken && data.session) {
-      const response = await fetch('/api/invitations/accept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: inviteToken }),
-      });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        setIsLoading(false);
-        toast.error(payload.error || 'Failed to accept invitation');
         return;
       }
-
-      toast.success('Account created! You are all set.');
-      if (data.user?.id) {
-        markInvitationSyncCompleted(data.user.id);
-      }
-      window.location.href = '/dashboard';
+      toast.error(signupBody.error || 'Failed to create account');
       return;
     }
 
-    setIsLoading(false);
-    setAwaitingEmailConfirm(true);
-    setPendingEmail(normalizedEmail);
-    toast.success('Check your email to confirm your account.');
-  }
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: values.password,
+    });
 
-  if (awaitingEmailConfirm && pendingEmail) {
-    return (
-      <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-5">
-        <h2 className="font-medium text-foreground">Confirm your email</h2>
-        <p className="text-sm text-muted-foreground">
-          We sent a confirmation link to <strong>{pendingEmail}</strong>. Open it to finish setup
-          and accept your invitation automatically.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          After confirming, you will be signed in and added to the team. If you do not see the email,
-          check spam or ask your admin to verify Supabase email settings.
-        </p>
-        {inviteToken ? (
-          <Button asChild variant="outline" className="w-full">
-            <Link href={`/login?redirectTo=${encodeURIComponent(inviteAcceptPath(inviteToken))}&email=${encodeURIComponent(pendingEmail)}`}>
-              Already confirmed? Sign in
-            </Link>
-          </Button>
-        ) : null}
-      </div>
-    );
+    if (signInError) {
+      setIsLoading(false);
+      toast.error(signInError.message || 'Account created but sign-in failed. Try signing in.');
+      router.push(
+        `/login?redirectTo=${encodeURIComponent(inviteAcceptPath(inviteToken))}&email=${encodeURIComponent(normalizedEmail)}`
+      );
+      return;
+    }
+
+    const acceptRes = await fetch('/api/invitations/accept', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: inviteToken }),
+    });
+    const acceptBody = await acceptRes.json().catch(() => ({}));
+
+    if (!acceptRes.ok) {
+      setIsLoading(false);
+      toast.error(acceptBody.error || 'Failed to accept invitation');
+      return;
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user?.id) {
+      markInvitationSyncCompleted(user.id);
+    }
+
+    toast.success('Account created! You are all set.');
+    window.location.href = '/dashboard';
   }
 
   return (
