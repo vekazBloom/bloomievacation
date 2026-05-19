@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { fetchApprovedUsageGloballyForUser } from '@/lib/leave/approved-usage-from-requests';
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
-import { canReviewLeaveForRole } from '@/lib/projects/access';
+import { canManageProject, canReviewLeaveForRole } from '@/lib/projects/access';
 import { formatRoleLabel } from '@/lib/email/format';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
@@ -165,6 +165,11 @@ export default async function ProjectMemberProfilePage({
   }
 
   const canReview = canReviewLeaveForRole(profile.is_system_admin, viewerMembership.role);
+  const canManage = await canManageProject(projectId, user.id);
+  const fundDefinitionOptions = (defRows || []).map((d) => ({
+    id: d.id as string,
+    label: d.label as string,
+  }));
 
   const carried = Number(
     (membership as { annual_leave_carried_over?: number | null }).annual_leave_carried_over ?? 0
@@ -205,6 +210,8 @@ export default async function ProjectMemberProfilePage({
         allocationLines={memberFundAllocationLines}
         requests={requests || []}
         canReview={canReview}
+        canManage={canManage}
+        fundDefinitions={fundDefinitionOptions}
         currentUserId={user.id}
       />
     </div>

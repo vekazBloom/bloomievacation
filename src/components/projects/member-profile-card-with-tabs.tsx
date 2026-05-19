@@ -2,13 +2,21 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { LeaveRequestsPanel } from '@/components/leave/leave-requests-panel';
-import { MemberFundsPanel, type MemberFundAllocationLine, type MemberFundGrant } from '@/components/projects/member-funds-panel';
+import {
+  MemberFundsPanel,
+  type MemberFundAllocationLine,
+  type MemberFundGrant,
+} from '@/components/projects/member-funds-panel';
 import { MemberProfileTabs } from '@/components/projects/member-profile-tabs';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
 import { getInitials } from '@/lib/utils';
@@ -22,6 +30,19 @@ function approvedOnGrant(lines: MemberFundAllocationLine[], grantId: string): nu
   }
   return s;
 }
+
+function reservedOnGrant(lines: MemberFundAllocationLine[], grantId: string): number {
+  let s = 0;
+  for (const line of lines) {
+    if (line.grant_id !== grantId) continue;
+    if (line.status !== 'pending' && line.status !== 'approved') continue;
+    s += Number(line.working_days || 0);
+  }
+  return s;
+}
+
+const selectClassName =
+  'flex h-9 max-w-md w-full rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
 export function MemberProfileCardWithTabs({
   projectSlug,
@@ -42,6 +63,8 @@ export function MemberProfileCardWithTabs({
   allocationLines,
   requests,
   canReview,
+  canManage,
+  fundDefinitions,
   currentUserId,
 }: {
   projectSlug: string;
@@ -58,13 +81,21 @@ export function MemberProfileCardWithTabs({
   sickProjectApproved: number;
   religiousProjectApproved: number;
   grants: MemberFundGrant[];
-  /** Global annual fund templates this user is assigned to (cross-project). */
   assignedTemplateIds: string[];
   allocationLines: MemberFundAllocationLine[];
   requests: any[];
   canReview: boolean;
+  canManage: boolean;
+  fundDefinitions: Array<{ id: string; label: string }>;
   currentUserId: string;
 }) {
+  const router = useRouter();
+
+  const scopeGrants = useMemo(
+    () => [...grants].sort((a, b) => a.valid_from.localeCompare(b.valid_from)),
+    [grants]
+  );
+
   const assignedGrants = useMemo(() => {
     const set = new Set(assignedTemplateIds.filter(Boolean));
     if (set.size === 0) return [];
@@ -72,25 +103,38 @@ export function MemberProfileCardWithTabs({
   }, [grants, assignedTemplateIds]);
 
   const [summaryGrantId, setSummaryGrantId] = useState<string | null>(null);
+  const [editDays, setEditDays] = useState('');
+  const [editDefinitionId, setEditDefinitionId] = useState('');
+  const [isSavingGrant, setIsSavingGrant] = useState(false);
 
   useEffect(() => {
-    if (assignedGrants.length === 0) {
+    if (scopeGrants.length === 0) {
       setSummaryGrantId(null);
       return;
     }
     setSummaryGrantId((prev) => {
-      if (prev && assignedGrants.some((g) => g.id === prev)) return prev;
-      return assignedGrants[0].id;
+      if (prev && scopeGrants.some((g) => g.id === prev)) return prev;
+      return assignedGrants[0]?.id ?? scopeGrants[0].id;
     });
-  }, [assignedGrants, assignedTemplateIds.join('|')]);
+  }, [scopeGrants, assignedGrants, assignedTemplateIds.join('|')]);
 
   const selectedGrant = useMemo(
     () => (summaryGrantId ? grants.find((g) => g.id === summaryGrantId) ?? null : null),
     [grants, summaryGrantId]
   );
 
+  useEffect(() => {
+    if (!selectedGrant) {
+      setEditDays('');
+      setEditDefinitionId('');
+      return;
+    }
+    setEditDays(String(Math.round(Number(selectedGrant.days_allocated || 0))));
+    setEditDefinitionId(selectedGrant.definition_id ?? '');
+  }, [selectedGrant?.id, selectedGrant?.days_allocated, selectedGrant?.definition_id]);
+
   const annualDisplay = useMemo(() => {
-    if (selectedGrant && selectedGrant.definition_id) {
+    if (selectedGrant) {
       const used = approvedOnGrant(allocationLines, selectedGrant.id);
       const total = Number(selectedGrant.days_allocated || 0);
       return { used, total };
@@ -99,57 +143,63 @@ export function MemberProfileCardWithTabs({
       used: annualGlobalApproved,
       total: annualProjectPool,
     };
-  }, [
-    allocationLines,
-    annualGlobalApproved,
-    annualProjectPool,
-    selectedGrant,
-  ]);
+  }, [allocationLines, annualGlobalApproved, annualProjectPool, selectedGrant]);
+
+  const reservedOnSelected = selectedGrant
+    ? reservedOnGrant(allocationLines, selectedGrant.id)
+    : 0;
 
   const sickDisplay = useMemo(() => {
-    if (summaryGrantId && selectedGrant?.definition_id) {
+    if (selectedGrant) {
       return { used: sickProjectApproved, total: sickProjectTotal };
     }
     return { used: sickGlobalApproved, total: sickProjectTotal };
-  }, [
-    sickGlobalApproved,
-    sickProjectApproved,
-    sickProjectTotal,
-    summaryGrantId,
-    selectedGrant?.definition_id,
-  ]);
+  }, [selectedGrant, sickGlobalApproved, sickProjectApproved, sickProjectTotal]);
 
   const religiousDisplay = useMemo(() => {
-    if (summaryGrantId && selectedGrant?.definition_id) {
+    if (selectedGrant) {
       return { used: religiousProjectApproved, total: religiousProjectTotal };
     }
     return { used: religiousGlobalApproved, total: religiousProjectTotal };
-  }, [
-    religiousGlobalApproved,
-    religiousProjectApproved,
-    religiousProjectTotal,
-    summaryGrantId,
-    selectedGrant?.definition_id,
-  ]);
+  }, [selectedGrant, religiousGlobalApproved, religiousProjectApproved, religiousProjectTotal]);
 
-  function setScopeFromFund(id: string | null) {
-    if (assignedGrants.length === 0) return;
-    if (id !== null && !assignedGrants.some((g) => g.id === id)) {
+  async function saveGrantAllocation() {
+    if (!selectedGrant) return;
+    const days = Number(editDays);
+    if (!Number.isFinite(days) || days < 0) {
+      toast.error('Enter a valid number of days');
       return;
     }
-    if (id === null) {
-      setSummaryGrantId(assignedGrants[0].id);
+
+    setIsSavingGrant(true);
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(projectSlug)}/annual-grants/${encodeURIComponent(selectedGrant.id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          days_allocated: days,
+          definition_id: editDefinitionId === '' ? null : editDefinitionId,
+        }),
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    setIsSavingGrant(false);
+
+    if (!response.ok) {
+      toast.error(payload.error || 'Failed to update fund');
       return;
     }
-    setSummaryGrantId(id);
+
+    toast.success('Fund allocation updated');
+    router.refresh();
   }
 
-  const footnote =
-    selectedGrant && selectedGrant.definition_id
-      ? `Annual shows approved days taken from “${selectedGrant.label}” vs that fund’s pool. Sick and religious show approved days in this project vs this team’s allowance.`
-      : assignedGrants.length === 0
-        ? 'Assign an annual fund template on Manage members to scope these numbers to a specific pool. Until then, annual “used” is across all projects; sick and religious use this team’s allowance.'
-        : '';
+  const footnote = selectedGrant
+    ? `Annual shows approved days on “${selectedGrant.label}” vs that fund’s pool. Sick and religious show approved days in this project vs this team’s allowance.`
+    : assignedGrants.length === 0
+      ? 'Assign an annual fund template on Manage members to scope annual balance to a specific pool. Until then, annual “used” is across all projects.'
+      : '';
 
   return (
     <Card>
@@ -167,41 +217,99 @@ export function MemberProfileCardWithTabs({
             </div>
             <p className="text-sm text-muted-foreground">{memberEmail}</p>
 
-            {assignedGrants.length > 1 ? (
+            {scopeGrants.length > 0 ? (
               <div className="space-y-1.5">
                 <Label htmlFor="balance-scope" className="text-xs text-muted-foreground">
-                  Balance scope
+                  Annual fund
                 </Label>
                 <select
                   id="balance-scope"
-                  value={summaryGrantId ?? assignedGrants[0]?.id ?? ''}
-                  onChange={(e) => setScopeFromFund(e.target.value)}
-                  className="flex h-9 max-w-md rounded-md border border-input bg-background px-2 text-sm"
+                  value={summaryGrantId ?? scopeGrants[0]?.id ?? ''}
+                  onChange={(e) => setSummaryGrantId(e.target.value)}
+                  className={selectClassName}
                 >
-                  {assignedGrants.map((g) => (
+                  {scopeGrants.map((g) => (
                     <option key={g.id} value={g.id}>
                       {g.label}
                       {g.grant_year != null ? ` (${g.grant_year})` : ''}
                       {g.definition_label ? ` · ${g.definition_label}` : ''}
+                      {g.source ? ` · ${g.source}` : ''}
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-muted-foreground">
-                  Only funds with an assigned template appear here. The three numbers below follow the selected pool
-                  (annual) and this project (sick / religious). Assigned fund cards on the Annual funds tab do the same.
-                </p>
               </div>
-            ) : assignedGrants.length === 1 ? (
+            ) : (
               <p className="text-xs text-muted-foreground">
-                Balance scope: <span className="font-medium text-foreground">{assignedGrants[0].label}</span>
-                {assignedGrants[0].definition_label ? ` (${assignedGrants[0].definition_label})` : null}.
+                No annual funds in this project yet.{' '}
+                {canManage ? (
+                  <Link href={projectPath(projectSlug, 'settings')} className="text-primary hover:underline">
+                    Open project settings
+                  </Link>
+                ) : null}
               </p>
+            )}
+
+            {canManage && selectedGrant ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 space-y-3">
+                <p className="text-sm font-medium">Edit allocation for {selectedGrant.label}</p>
+                {fundDefinitions.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-grant-def" className="text-xs text-muted-foreground">
+                      Fund template
+                    </Label>
+                    <select
+                      id="member-grant-def"
+                      value={editDefinitionId}
+                      onChange={(e) => setEditDefinitionId(e.target.value)}
+                      className={selectClassName}
+                    >
+                      <option value="">Not linked</option>
+                      {fundDefinitions.map((def) => (
+                        <option key={def.id} value={def.id}>
+                          {def.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                <div className="space-y-1.5">
+                  <Label htmlFor="member-grant-days" className="text-xs text-muted-foreground">
+                    Allocated working days
+                  </Label>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <Input
+                      id="member-grant-days"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={editDays}
+                      onChange={(e) => setEditDays(e.target.value)}
+                      className="max-w-[8rem]"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isSavingGrant}
+                      onClick={() => void saveGrantAllocation()}
+                    >
+                      {isSavingGrant ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {isSavingGrant ? 'Saving…' : 'Save'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Minimum {formatAllocatedDays(reservedOnSelected)} (pending + approved on this fund).
+                    {selectedGrant.source === 'legacy_migration'
+                      ? ' Legacy funds also sync the member’s annual total on Manage members.'
+                      : null}
+                  </p>
+                </div>
+              </div>
             ) : null}
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Annual</p>
-                {selectedGrant && selectedGrant.definition_id ? (
+                {selectedGrant ? (
                   <p className="mt-0.5 text-xs font-normal normal-case text-muted-foreground line-clamp-2">
                     {selectedGrant.label}
                   </p>
@@ -209,6 +317,11 @@ export function MemberProfileCardWithTabs({
                 <p className="mt-1 font-mono text-lg tabular-nums">
                   {formatAllocatedDays(annualDisplay.used)} / {formatAllocatedDays(annualDisplay.total)}
                 </p>
+                {selectedGrant ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {formatAllocatedDays(Math.max(0, annualDisplay.total - annualDisplay.used))} remaining
+                  </p>
+                ) : null}
               </div>
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Sick</p>
@@ -219,7 +332,8 @@ export function MemberProfileCardWithTabs({
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Religious</p>
                 <p className="mt-1 font-mono text-lg tabular-nums">
-                  {formatAllocatedDays(religiousDisplay.used)} / {formatAllocatedDays(religiousDisplay.total)}
+                  {formatAllocatedDays(religiousDisplay.used)} /{' '}
+                  {formatAllocatedDays(religiousDisplay.total)}
                 </p>
               </div>
             </div>
@@ -259,7 +373,13 @@ export function MemberProfileCardWithTabs({
                 grants={grants}
                 allocationLines={allocationLines}
                 selectedSummaryGrantId={summaryGrantId}
-                onSelectSummaryGrant={setScopeFromFund}
+                onSelectSummaryGrant={(id) => {
+                  if (id === null && scopeGrants[0]) {
+                    setSummaryGrantId(scopeGrants[0].id);
+                    return;
+                  }
+                  setSummaryGrantId(id);
+                }}
               />
             </div>
           }
