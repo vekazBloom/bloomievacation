@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { authUserExistsForEmail } from '@/lib/auth/admin-users';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedUser } from '@/lib/auth/dashboard';
 import { buildInviteRoleSummary } from '@/lib/email/format';
@@ -38,15 +39,17 @@ export default async function InvitePage({ searchParams }: Props) {
   // Check if user is logged in.
   const { user } = await getAuthenticatedUser();
 
-  // Check if a user with this email already exists.
-  const { data: existingUser } = await service
-    .from('users')
-    .select('id')
-    .ilike('email', invite.email.trim())
-    .maybeSingle();
+  const inviteEmail = invite.email.trim().toLowerCase();
+
+  const [{ data: existingUser }, hasAuthAccount] = await Promise.all([
+    service.from('users').select('id').ilike('email', inviteEmail).maybeSingle(),
+    authUserExistsForEmail(service, inviteEmail),
+  ]);
+
+  const accountExists = Boolean(existingUser) || hasAuthAccount;
 
   // Logged in & email matches → auto-redirect to API to accept.
-  if (user && user.email?.toLowerCase() === invite.email.toLowerCase()) {
+  if (user && user.email?.toLowerCase() === inviteEmail) {
     redirect(`/api/invitations/accept?token=${token}&redirect=/dashboard`);
   }
 
@@ -57,7 +60,7 @@ export default async function InvitePage({ searchParams }: Props) {
   });
 
   // Logged in but with different email → log out hint.
-  if (user && user.email !== invite.email) {
+  if (user && user.email?.toLowerCase() !== inviteEmail) {
     return (
       <InviteCard project={invite.projects}>
         <p className="text-sm text-muted-foreground">
@@ -75,8 +78,9 @@ export default async function InvitePage({ searchParams }: Props) {
   }
 
   // Not logged in: existing user → login; new user → signup.
-  const targetPath = existingUser
-    ? `/login?redirectTo=${encodeURIComponent(`/api/invitations/accept?token=${token}&redirect=/dashboard`)}`
+  const acceptRedirect = `/api/invitations/accept?token=${token}&redirect=/dashboard`;
+  const targetPath = accountExists
+    ? `/login?redirectTo=${encodeURIComponent(acceptRedirect)}&email=${encodeURIComponent(invite.email)}`
     : `/signup?invite=${token}&email=${encodeURIComponent(invite.email)}`;
 
   return (
@@ -93,7 +97,7 @@ export default async function InvitePage({ searchParams }: Props) {
 
       <Button asChild size="lg" className="w-full">
         <Link href={targetPath}>
-          {existingUser ? 'Sign in to accept' : 'Create account to accept'}
+          {accountExists ? 'Sign in to accept' : 'Create account to accept'}
         </Link>
       </Button>
     </InviteCard>

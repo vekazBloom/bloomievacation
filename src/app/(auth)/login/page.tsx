@@ -4,7 +4,7 @@ import { LoginForm } from '@/components/auth/login-form';
 export default function LoginPage({
   searchParams,
 }: {
-  searchParams: { redirectTo?: string; error?: string };
+  searchParams: { redirectTo?: string; error?: string; email?: string };
 }) {
   return (
     <div className="rounded-2xl border border-border bg-card/80 p-8 shadow-xl backdrop-blur-sm sm:p-10">
@@ -15,7 +15,13 @@ export default function LoginPage({
         </p>
       </div>
 
-      <LoginForm redirectTo={searchParams.redirectTo} />
+      {searchParams.error === 'auth-callback' ? (
+        <p className="mb-4 text-sm text-destructive">
+          Email confirmation link expired or invalid. Sign in below or request a new invite.
+        </p>
+      ) : null}
+
+      <LoginForm redirectTo={searchParams.redirectTo} prefilledEmail={searchParams.email} />
 
       <div className="mt-8 border-t border-border pt-6 text-center">
         <p className="text-sm text-muted-foreground">

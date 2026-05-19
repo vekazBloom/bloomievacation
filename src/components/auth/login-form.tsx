@@ -21,7 +21,13 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-export function LoginForm({ redirectTo }: { redirectTo?: string }) {
+export function LoginForm({
+  redirectTo,
+  prefilledEmail,
+}: {
+  redirectTo?: string;
+  prefilledEmail?: string;
+}) {
   const router = useRouter();
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(false);
@@ -32,6 +38,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
+    defaultValues: { email: prefilledEmail || '' },
   });
 
   async function onSubmit(values: FormValues) {

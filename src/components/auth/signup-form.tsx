@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -25,6 +26,15 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+function inviteAcceptPath(token: string) {
+  return `/api/invitations/accept?token=${encodeURIComponent(token)}&redirect=${encodeURIComponent('/dashboard')}`;
+}
+
+function emailConfirmRedirectUrl(token: string) {
+  const next = inviteAcceptPath(token);
+  return `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
+}
+
 export function SignupForm({
   prefilledEmail,
   inviteToken,
@@ -35,6 +45,8 @@ export function SignupForm({
   const router = useRouter();
   const supabase = createClient();
   const [isLoading, setIsLoading] = useState(false);
+  const [awaitingEmailConfirm, setAwaitingEmailConfirm] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   const {
     register,
@@ -52,6 +64,7 @@ export function SignupForm({
     }
 
     setIsLoading(true);
+    setAwaitingEmailConfirm(false);
 
     const normalizedEmail = values.email.trim().toLowerCase();
 
@@ -60,37 +73,41 @@ export function SignupForm({
       password: values.password,
       options: {
         data: { name: values.name },
-        emailRedirectTo: inviteToken
-          ? `${window.location.origin}/invite?token=${encodeURIComponent(inviteToken)}`
-          : `${window.location.origin}/dashboard`,
+        emailRedirectTo: emailConfirmRedirectUrl(inviteToken),
       },
     });
 
     if (error) {
-      toast.error(error.message || 'Failed to create account');
+      const msg = error.message || 'Failed to create account';
+      if (msg.toLowerCase().includes('already registered')) {
+        toast.error('This email already has an account. Sign in to accept the invite.');
+        router.push(
+          `/login?redirectTo=${encodeURIComponent(inviteAcceptPath(inviteToken))}&email=${encodeURIComponent(normalizedEmail)}`
+        );
+      } else {
+        toast.error(msg);
+      }
       setIsLoading(false);
       return;
     }
 
-    // Create the public.users row.
     if (data.user) {
-      const { error: profileError } = await supabase.from('users').upsert({
-        id: data.user.id,
-        email: normalizedEmail,
-        name: values.name,
+      const profileRes = await fetch('/api/auth/invite-signup-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: data.user.id,
+          email: normalizedEmail,
+          name: values.name,
+        }),
       });
-      if (profileError) console.error('Profile creation error:', profileError);
-
+      if (!profileRes.ok) {
+        const body = await profileRes.json().catch(() => ({}));
+        console.error('Profile creation error:', body.error);
+      }
     }
 
-    if (inviteToken) {
-      if (!data.session) {
-        setIsLoading(false);
-        toast.success('Account created. Confirm your email, then open the invite link again.');
-        router.push(`/invite?token=${encodeURIComponent(inviteToken)}`);
-        return;
-      }
-
+    if (inviteToken && data.session) {
       const response = await fetch('/api/invitations/accept', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,7 +118,6 @@ export function SignupForm({
       if (!response.ok) {
         setIsLoading(false);
         toast.error(payload.error || 'Failed to accept invitation');
-        router.push(`/invite?token=${encodeURIComponent(inviteToken)}`);
         return;
       }
 
@@ -114,13 +130,32 @@ export function SignupForm({
     }
 
     setIsLoading(false);
-    await fetch('/api/invitations/sync', { method: 'POST' });
-    if (data.user?.id) {
-      markInvitationSyncCompleted(data.user.id);
-    }
-    toast.success('Account created!');
-    router.push('/dashboard');
-    router.refresh();
+    setAwaitingEmailConfirm(true);
+    setPendingEmail(normalizedEmail);
+    toast.success('Check your email to confirm your account.');
+  }
+
+  if (awaitingEmailConfirm && pendingEmail) {
+    return (
+      <div className="space-y-4 rounded-lg border border-border bg-muted/40 p-5">
+        <h2 className="font-medium text-foreground">Confirm your email</h2>
+        <p className="text-sm text-muted-foreground">
+          We sent a confirmation link to <strong>{pendingEmail}</strong>. Open it to finish setup
+          and accept your invitation automatically.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          After confirming, you will be signed in and added to the team. If you do not see the email,
+          check spam or ask your admin to verify Supabase email settings.
+        </p>
+        {inviteToken ? (
+          <Button asChild variant="outline" className="w-full">
+            <Link href={`/login?redirectTo=${encodeURIComponent(inviteAcceptPath(inviteToken))}&email=${encodeURIComponent(pendingEmail)}`}>
+              Already confirmed? Sign in
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+    );
   }
 
   return (
