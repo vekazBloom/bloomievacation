@@ -44,6 +44,56 @@ function reservedOnGrant(lines: MemberFundAllocationLine[], grantId: string): nu
 const selectClassName =
   'flex h-9 max-w-md w-full rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
+type AnnualFundOption = {
+  key: string;
+  label: string;
+  grantId: string;
+};
+
+function pickPrimaryGrantForDefinition(grantList: MemberFundGrant[]): MemberFundGrant {
+  const legacy = grantList.find((g) => g.source === 'legacy_migration');
+  if (legacy) return legacy;
+  return [...grantList].sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
+}
+
+function buildAnnualFundOptions(
+  grants: MemberFundGrant[],
+  fundDefinitions: Array<{ id: string; label: string }>
+): AnnualFundOption[] {
+  const defLabelById = new Map(fundDefinitions.map((d) => [d.id, d.label]));
+  const byDefinition = new Map<string, MemberFundGrant[]>();
+  const unlinked: MemberFundGrant[] = [];
+
+  for (const grant of grants) {
+    if (grant.definition_id) {
+      const list = byDefinition.get(grant.definition_id) || [];
+      list.push(grant);
+      byDefinition.set(grant.definition_id, list);
+    } else {
+      unlinked.push(grant);
+    }
+  }
+
+  const options: AnnualFundOption[] = [];
+
+  for (const [definitionId, grantList] of byDefinition) {
+    const grant = pickPrimaryGrantForDefinition(grantList);
+    const label =
+      defLabelById.get(definitionId) || grant.definition_label || grant.label || 'Annual fund';
+    options.push({ key: definitionId, label, grantId: grant.id });
+  }
+
+  for (const grant of unlinked) {
+    options.push({
+      key: `grant:${grant.id}`,
+      label: grant.label || 'Annual fund',
+      grantId: grant.id,
+    });
+  }
+
+  return options.sort((a, b) => a.label.localeCompare(b.label));
+}
+
 export function MemberProfileCardWithTabs({
   projectSlug,
   memberName,
@@ -91,47 +141,47 @@ export function MemberProfileCardWithTabs({
 }) {
   const router = useRouter();
 
-  const scopeGrants = useMemo(
-    () => [...grants].sort((a, b) => a.valid_from.localeCompare(b.valid_from)),
-    [grants]
+  const fundOptions = useMemo(
+    () => buildAnnualFundOptions(grants, fundDefinitions),
+    [grants, fundDefinitions]
   );
 
-  const assignedGrants = useMemo(() => {
-    const set = new Set(assignedTemplateIds.filter(Boolean));
-    if (set.size === 0) return [];
-    return grants.filter((g) => g.definition_id != null && set.has(g.definition_id));
-  }, [grants, assignedTemplateIds]);
-
-  const [summaryGrantId, setSummaryGrantId] = useState<string | null>(null);
+  const [selectedFundKey, setSelectedFundKey] = useState<string | null>(null);
   const [editDays, setEditDays] = useState('');
-  const [editDefinitionId, setEditDefinitionId] = useState('');
   const [isSavingGrant, setIsSavingGrant] = useState(false);
 
   useEffect(() => {
-    if (scopeGrants.length === 0) {
-      setSummaryGrantId(null);
+    if (fundOptions.length === 0) {
+      setSelectedFundKey(null);
       return;
     }
-    setSummaryGrantId((prev) => {
-      if (prev && scopeGrants.some((g) => g.id === prev)) return prev;
-      return assignedGrants[0]?.id ?? scopeGrants[0].id;
+    setSelectedFundKey((prev) => {
+      if (prev && fundOptions.some((o) => o.key === prev)) return prev;
+      const assigned = assignedTemplateIds.find((id) => fundOptions.some((o) => o.key === id));
+      return assigned ?? fundOptions[0].key;
     });
-  }, [scopeGrants, assignedGrants, assignedTemplateIds.join('|')]);
+  }, [fundOptions, assignedTemplateIds.join('|')]);
+
+  const selectedFundOption = useMemo(
+    () => fundOptions.find((o) => o.key === selectedFundKey) ?? null,
+    [fundOptions, selectedFundKey]
+  );
 
   const selectedGrant = useMemo(
-    () => (summaryGrantId ? grants.find((g) => g.id === summaryGrantId) ?? null : null),
-    [grants, summaryGrantId]
+    () =>
+      selectedFundOption ? grants.find((g) => g.id === selectedFundOption.grantId) ?? null : null,
+    [grants, selectedFundOption]
   );
+
+  const summaryGrantId = selectedGrant?.id ?? null;
 
   useEffect(() => {
     if (!selectedGrant) {
       setEditDays('');
-      setEditDefinitionId('');
       return;
     }
     setEditDays(String(Math.round(Number(selectedGrant.days_allocated || 0))));
-    setEditDefinitionId(selectedGrant.definition_id ?? '');
-  }, [selectedGrant?.id, selectedGrant?.days_allocated, selectedGrant?.definition_id]);
+  }, [selectedGrant?.id, selectedGrant?.days_allocated]);
 
   const annualDisplay = useMemo(() => {
     if (selectedGrant) {
@@ -177,10 +227,7 @@ export function MemberProfileCardWithTabs({
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          days_allocated: days,
-          definition_id: editDefinitionId === '' ? null : editDefinitionId,
-        }),
+        body: JSON.stringify({ days_allocated: days }),
       }
     );
     const payload = await response.json().catch(() => ({}));
@@ -195,10 +242,12 @@ export function MemberProfileCardWithTabs({
     router.refresh();
   }
 
-  const footnote = selectedGrant
-    ? `Annual shows approved days on “${selectedGrant.label}” vs that fund’s pool. Sick and religious show approved days in this project vs this team’s allowance.`
-    : assignedGrants.length === 0
-      ? 'Assign an annual fund template on Manage members to scope annual balance to a specific pool. Until then, annual “used” is across all projects.'
+  const selectedFundLabel = selectedFundOption?.label ?? null;
+
+  const footnote = selectedFundLabel
+    ? `Annual balance is for “${selectedFundLabel}”. Sick and religious use this project’s team allowance.`
+    : fundOptions.length === 0
+      ? 'Assign annual funds on Manage members so this member has a pool here.'
       : '';
 
   return (
@@ -217,26 +266,62 @@ export function MemberProfileCardWithTabs({
             </div>
             <p className="text-sm text-muted-foreground">{memberEmail}</p>
 
-            {scopeGrants.length > 0 ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="balance-scope" className="text-xs text-muted-foreground">
-                  Annual fund
-                </Label>
-                <select
-                  id="balance-scope"
-                  value={summaryGrantId ?? scopeGrants[0]?.id ?? ''}
-                  onChange={(e) => setSummaryGrantId(e.target.value)}
-                  className={selectClassName}
-                >
-                  {scopeGrants.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.label}
-                      {g.grant_year != null ? ` (${g.grant_year})` : ''}
-                      {g.definition_label ? ` · ${g.definition_label}` : ''}
-                      {g.source ? ` · ${g.source}` : ''}
-                    </option>
-                  ))}
-                </select>
+            {fundOptions.length > 0 ? (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="balance-scope" className="text-xs text-muted-foreground">
+                    Annual fund
+                  </Label>
+                  <select
+                    id="balance-scope"
+                    value={selectedFundKey ?? fundOptions[0]?.key ?? ''}
+                    onChange={(e) => setSelectedFundKey(e.target.value)}
+                    className={selectClassName}
+                  >
+                    {fundOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {canManage && selectedGrant ? (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="member-grant-days" className="text-xs text-muted-foreground">
+                        Allocated days
+                      </Label>
+                      <Input
+                        id="member-grant-days"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={editDays}
+                        onChange={(e) => setEditDays(e.target.value)}
+                        className="max-w-[8rem]"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isSavingGrant}
+                      onClick={() => void saveGrantAllocation()}
+                    >
+                      {isSavingGrant ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                      {isSavingGrant ? 'Saving…' : 'Save'}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {canManage && selectedGrant ? (
+                  <p className="text-xs text-muted-foreground">
+                    Minimum {formatAllocatedDays(reservedOnSelected)} already booked on this fund.
+                    {selectedGrant.source === 'legacy_migration'
+                      ? ' Saving also updates the annual total on Manage members.'
+                      : null}
+                  </p>
+                ) : null}
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
@@ -249,69 +334,12 @@ export function MemberProfileCardWithTabs({
               </p>
             )}
 
-            {canManage && selectedGrant ? (
-              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 space-y-3">
-                <p className="text-sm font-medium">Edit allocation for {selectedGrant.label}</p>
-                {fundDefinitions.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="member-grant-def" className="text-xs text-muted-foreground">
-                      Fund template
-                    </Label>
-                    <select
-                      id="member-grant-def"
-                      value={editDefinitionId}
-                      onChange={(e) => setEditDefinitionId(e.target.value)}
-                      className={selectClassName}
-                    >
-                      <option value="">Not linked</option>
-                      {fundDefinitions.map((def) => (
-                        <option key={def.id} value={def.id}>
-                          {def.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : null}
-                <div className="space-y-1.5">
-                  <Label htmlFor="member-grant-days" className="text-xs text-muted-foreground">
-                    Allocated working days
-                  </Label>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <Input
-                      id="member-grant-days"
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={editDays}
-                      onChange={(e) => setEditDays(e.target.value)}
-                      className="max-w-[8rem]"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={isSavingGrant}
-                      onClick={() => void saveGrantAllocation()}
-                    >
-                      {isSavingGrant ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {isSavingGrant ? 'Saving…' : 'Save'}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Minimum {formatAllocatedDays(reservedOnSelected)} (pending + approved on this fund).
-                    {selectedGrant.source === 'legacy_migration'
-                      ? ' Legacy funds also sync the member’s annual total on Manage members.'
-                      : null}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg border border-border px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Annual</p>
-                {selectedGrant ? (
+                {selectedFundLabel ? (
                   <p className="mt-0.5 text-xs font-normal normal-case text-muted-foreground line-clamp-2">
-                    {selectedGrant.label}
+                    {selectedFundLabel}
                   </p>
                 ) : null}
                 <p className="mt-1 font-mono text-lg tabular-nums">
@@ -374,11 +402,9 @@ export function MemberProfileCardWithTabs({
                 allocationLines={allocationLines}
                 selectedSummaryGrantId={summaryGrantId}
                 onSelectSummaryGrant={(id) => {
-                  if (id === null && scopeGrants[0]) {
-                    setSummaryGrantId(scopeGrants[0].id);
-                    return;
-                  }
-                  setSummaryGrantId(id);
+                  if (!id) return;
+                  const match = fundOptions.find((o) => o.grantId === id);
+                  if (match) setSelectedFundKey(match.key);
                 }}
               />
             </div>
