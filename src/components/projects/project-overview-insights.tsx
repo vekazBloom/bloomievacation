@@ -1,8 +1,19 @@
+'use client';
+
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CalendarDays, ClipboardList, Users } from 'lucide-react';
+import {
+  ALL_ANNUAL_FUNDS,
+  AnnualFundFilterSelect,
+} from '@/components/projects/annual-fund-filter-select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { ProjectOverviewStats } from '@/lib/projects/overview';
+import type {
+  AnnualFundDefinitionOption,
+  FundScopedOverviewSlice,
+} from '@/lib/projects/overview-fund-stats';
 import { formatDateRange } from '@/lib/utils';
 import { projectPath } from '@/lib/projects/paths';
 
@@ -60,17 +71,102 @@ function DistributionBar({
   );
 }
 
+function InsightsCardHeader({
+  title,
+  description,
+  filterId,
+  fundFilter,
+  fundDefinitions,
+  onFundFilterChange,
+}: {
+  title: string;
+  description: string;
+  filterId: string;
+  fundFilter: string;
+  fundDefinitions: AnnualFundDefinitionOption[];
+  onFundFilterChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-b border-border px-6 py-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h2 className="font-display text-lg">{title}</h2>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      <AnnualFundFilterSelect
+        id={filterId}
+        value={fundFilter}
+        definitions={fundDefinitions}
+        onChange={onFundFilterChange}
+      />
+    </div>
+  );
+}
+
 export function ProjectOverviewInsights({
   projectSlug,
   stats,
+  fundDefinitions,
+  fundStats,
 }: {
   projectSlug: string;
   stats: ProjectOverviewStats;
+  fundDefinitions: AnnualFundDefinitionOption[];
+  fundStats: Record<string, FundScopedOverviewSlice>;
 }) {
+  const [utilizationFund, setUtilizationFund] = useState(ALL_ANNUAL_FUNDS);
+  const [requestMixFund, setRequestMixFund] = useState(ALL_ANNUAL_FUNDS);
+  const [memberUsageFund, setMemberUsageFund] = useState(ALL_ANNUAL_FUNDS);
+
+  const utilizationSlice = useMemo(() => {
+    if (utilizationFund === ALL_ANNUAL_FUNDS) {
+      return {
+        annualUsed: stats.utilization.annualUsed,
+        annualTotal: stats.utilization.annualTotal,
+      };
+    }
+    return (
+      fundStats[utilizationFund]?.utilization ?? {
+        annualUsed: 0,
+        annualTotal: 0,
+      }
+    );
+  }, [fundStats, stats.utilization, utilizationFund]);
+
+  const requestMixSlice = useMemo(() => {
+    if (requestMixFund === ALL_ANNUAL_FUNDS) {
+      return {
+        annual: stats.leaveTypeCounts.annual,
+        statusCounts: stats.statusCounts,
+      };
+    }
+    const scoped = fundStats[requestMixFund];
+    return {
+      annual: scoped?.leaveTypeCounts.annual ?? 0,
+      statusCounts: scoped?.statusCounts ?? {
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        cancelled: 0,
+      },
+    };
+  }, [fundStats, requestMixFund, stats.leaveTypeCounts.annual, stats.statusCounts]);
+
+  const memberUtilization = useMemo(() => {
+    if (memberUsageFund === ALL_ANNUAL_FUNDS) {
+      return stats.memberUtilization;
+    }
+    return fundStats[memberUsageFund]?.memberUtilization ?? [];
+  }, [fundStats, memberUsageFund, stats.memberUtilization]);
+
   const requestTotal = Math.max(
     1,
-    stats.leaveTypeCounts.annual + stats.leaveTypeCounts.sick + stats.leaveTypeCounts.religious
+    requestMixSlice.annual + stats.leaveTypeCounts.sick + stats.leaveTypeCounts.religious
   );
+
+  const selectedUtilizationFundLabel =
+    utilizationFund === ALL_ANNUAL_FUNDS
+      ? null
+      : fundDefinitions.find((definition) => definition.id === utilizationFund)?.label;
 
   return (
     <div className="space-y-6">
@@ -115,15 +211,23 @@ export function ProjectOverviewInsights({
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <div className="border-b border-border px-6 py-4">
-            <h2 className="font-display text-lg">Team leave utilization</h2>
-            <p className="text-sm text-muted-foreground">Used leave across the whole project.</p>
-          </div>
+          <InsightsCardHeader
+            title="Team leave utilization"
+            description="Used leave across the whole project."
+            filterId="overview-utilization-fund"
+            fundFilter={utilizationFund}
+            fundDefinitions={fundDefinitions}
+            onFundFilterChange={setUtilizationFund}
+          />
           <CardContent className="space-y-5 p-6">
             <UtilizationBar
-              label="Annual leave"
-              used={stats.utilization.annualUsed}
-              total={stats.utilization.annualTotal}
+              label={
+                selectedUtilizationFundLabel
+                  ? `Annual leave (${selectedUtilizationFundLabel})`
+                  : 'Annual leave'
+              }
+              used={utilizationSlice.annualUsed}
+              total={utilizationSlice.annualTotal}
               accentClass="bg-primary"
             />
             <UtilizationBar
@@ -142,15 +246,19 @@ export function ProjectOverviewInsights({
         </Card>
 
         <Card>
-          <div className="border-b border-border px-6 py-4">
-            <h2 className="font-display text-lg">Request mix</h2>
-            <p className="text-sm text-muted-foreground">Leave types and request statuses in this project.</p>
-          </div>
+          <InsightsCardHeader
+            title="Request mix"
+            description="Leave types and request statuses in this project."
+            filterId="overview-request-mix-fund"
+            fundFilter={requestMixFund}
+            fundDefinitions={fundDefinitions}
+            onFundFilterChange={setRequestMixFund}
+          />
           <CardContent className="space-y-6 p-6">
             <div className="space-y-4">
               <DistributionBar
                 label="Annual"
-                value={stats.leaveTypeCounts.annual}
+                value={requestMixSlice.annual}
                 max={requestTotal}
                 accentClass="bg-sky-500"
               />
@@ -170,19 +278,27 @@ export function ProjectOverviewInsights({
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-lg border border-border px-3 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Pending</p>
-                <p className="mt-1 font-mono text-2xl tabular-nums">{stats.statusCounts.pending}</p>
+                <p className="mt-1 font-mono text-2xl tabular-nums">
+                  {requestMixSlice.statusCounts.pending}
+                </p>
               </div>
               <div className="rounded-lg border border-border px-3 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Approved</p>
-                <p className="mt-1 font-mono text-2xl tabular-nums">{stats.statusCounts.approved}</p>
+                <p className="mt-1 font-mono text-2xl tabular-nums">
+                  {requestMixSlice.statusCounts.approved}
+                </p>
               </div>
               <div className="rounded-lg border border-border px-3 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Rejected</p>
-                <p className="mt-1 font-mono text-2xl tabular-nums">{stats.statusCounts.rejected}</p>
+                <p className="mt-1 font-mono text-2xl tabular-nums">
+                  {requestMixSlice.statusCounts.rejected}
+                </p>
               </div>
               <div className="rounded-lg border border-border px-3 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Cancelled</p>
-                <p className="mt-1 font-mono text-2xl tabular-nums">{stats.statusCounts.cancelled}</p>
+                <p className="mt-1 font-mono text-2xl tabular-nums">
+                  {requestMixSlice.statusCounts.cancelled}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -191,15 +307,19 @@ export function ProjectOverviewInsights({
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <div className="border-b border-border px-6 py-4">
-            <h2 className="font-display text-lg">Highest annual usage</h2>
-            <p className="text-sm text-muted-foreground">Members closest to using their annual allowance.</p>
-          </div>
+          <InsightsCardHeader
+            title="Highest annual usage"
+            description="Members closest to using their annual allowance."
+            filterId="overview-member-usage-fund"
+            fundFilter={memberUsageFund}
+            fundDefinitions={fundDefinitions}
+            onFundFilterChange={setMemberUsageFund}
+          />
           <CardContent className="space-y-4 p-6">
-            {stats.memberUtilization.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No member balances yet.</p>
+            {memberUtilization.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No member balances for this fund yet.</p>
             ) : (
-              stats.memberUtilization.map((member) => (
+              memberUtilization.map((member) => (
                 <div key={member.name} className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium">{member.name}</span>
@@ -208,7 +328,10 @@ export function ProjectOverviewInsights({
                     </span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${member.annualPct}%` }} />
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${member.annualPct}%` }}
+                    />
                   </div>
                 </div>
               ))
