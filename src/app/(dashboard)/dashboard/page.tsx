@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 import { ArrowRight, Plane, Stethoscope, Sparkles, FolderKanban } from 'lucide-react';
 import { DashboardAdminOverviewFallback } from '@/components/dashboard/dashboard-admin-overview-fallback';
 import { DashboardAdminOverviewSection } from '@/components/dashboard/dashboard-admin-overview-section';
+import { DashboardSentInvitationsSection } from '@/components/dashboard/dashboard-sent-invitations-section';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -134,6 +135,8 @@ export default async function DashboardPage() {
           <DashboardAdminOverviewSection />
         </Suspense>
       ) : null}
+
+      <DashboardSentInvitationsSection supabase={supabase} userId={user.id} />
 
       {/* Balance cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

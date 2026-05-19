@@ -51,7 +51,7 @@ export async function POST(
 
   const { data: invitation } = await supabase
     .from('invitations')
-    .select('id, email, role, expires_at, accepted_at, project_id, grant_system_admin')
+    .select('id, email, role, expires_at, accepted_at, project_id, grant_system_admin, sent_by')
     .eq('id', invitationId)
     .maybeSingle();
 
@@ -69,15 +69,16 @@ export async function POST(
     .eq('id', user.id)
     .maybeSingle();
 
-  let allowed = false;
-  if (!invitation.project_id) {
+  const isSender = invitation.sent_by === user.id;
+  let allowed = isSender;
+  if (!allowed && !invitation.project_id) {
     allowed = Boolean(profile?.is_system_admin);
-  } else {
+  } else if (!allowed && invitation.project_id) {
     allowed = await canManageProjectMembers(user.id, invitation.project_id);
   }
 
   if (!allowed) {
-    return NextResponse.json({ error: 'Only project admins can resend invitations' }, { status: 403 });
+    return NextResponse.json({ error: 'You cannot resend this invitation' }, { status: 403 });
   }
 
   const token = crypto.randomUUID();

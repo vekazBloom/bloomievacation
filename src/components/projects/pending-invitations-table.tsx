@@ -15,11 +15,22 @@ type PendingInvitation = {
   role: 'admin' | 'lead' | 'employee';
   expires_at: string;
   created_at: string | null;
+  projectName?: string | null;
+  projectSlug?: string | null;
+  roleSummary?: string;
 };
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-export function PendingInvitationsTable({ invitations }: { invitations: PendingInvitation[] }) {
+export function PendingInvitationsTable({
+  invitations,
+  title = 'Pending invitations',
+  description,
+}: {
+  invitations: PendingInvitation[];
+  title?: string;
+  description?: string;
+}) {
   const router = useRouter();
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [cooldowns, setCooldowns] = useState<Record<string, number>>({});
@@ -57,7 +68,10 @@ export function PendingInvitationsTable({ invitations }: { invitations: PendingI
   return (
     <Card>
       <div className="border-b border-border px-6 py-4">
-        <h2 className="font-display text-lg">Pending invitations</h2>
+        <h2 className="font-display text-lg">{title}</h2>
+        {description ? (
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        ) : null}
       </div>
       <CardContent className="divide-y divide-border p-0">
         {sortedInvitations.length === 0 ? (
@@ -76,14 +90,20 @@ export function PendingInvitationsTable({ invitations }: { invitations: PendingI
                 <div>
                   <p className="font-medium">{invite.email}</p>
                   <p className="text-sm text-muted-foreground">
+                    {invite.projectName ? `${invite.projectName} · ` : ''}
+                    {invite.roleSummary ?? formatRoleLabel(invite.role)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
                     Expires {formatEmailDate(invite.expires_at)}
                     {isExpired ? ' (expired)' : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono uppercase">
-                    {formatRoleLabel(invite.role)}
-                  </Badge>
+                  {!invite.roleSummary ? (
+                    <Badge variant="outline" className="font-mono uppercase">
+                      {formatRoleLabel(invite.role)}
+                    </Badge>
+                  ) : null}
                   <Button
                     type="button"
                     variant="outline"
