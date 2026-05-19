@@ -80,6 +80,22 @@ export function SignupForm({
     if (error) {
       const msg = error.message || 'Failed to create account';
       if (msg.toLowerCase().includes('already registered')) {
+        const { error: resendError } = await supabase.auth.resend({
+          type: 'signup',
+          email: normalizedEmail,
+          options: {
+            emailRedirectTo: emailConfirmRedirectUrl(inviteToken),
+          },
+        });
+
+        if (!resendError) {
+          setAwaitingEmailConfirm(true);
+          setPendingEmail(normalizedEmail);
+          toast.success('Check your email to confirm your account.');
+          setIsLoading(false);
+          return;
+        }
+
         toast.error('This email already has an account. Sign in to accept the invite.');
         router.push(
           `/login?redirectTo=${encodeURIComponent(inviteAcceptPath(inviteToken))}&email=${encodeURIComponent(normalizedEmail)}`

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
-import { authUserExistsForEmail } from '@/lib/auth/admin-users';
+import { getAuthUserStateForEmail } from '@/lib/auth/admin-users';
+import { InviteEmailConfirmPanel } from '@/components/auth/invite-email-confirm-panel';
 import { createServiceClient } from '@/lib/supabase/server';
 import { getAuthenticatedUser } from '@/lib/auth/dashboard';
 import { buildInviteRoleSummary } from '@/lib/email/format';
@@ -41,12 +42,9 @@ export default async function InvitePage({ searchParams }: Props) {
 
   const inviteEmail = invite.email.trim().toLowerCase();
 
-  const [{ data: existingUser }, hasAuthAccount] = await Promise.all([
-    service.from('users').select('id').ilike('email', inviteEmail).maybeSingle(),
-    authUserExistsForEmail(service, inviteEmail),
-  ]);
-
-  const accountExists = Boolean(existingUser) || hasAuthAccount;
+  const authState = await getAuthUserStateForEmail(service, inviteEmail);
+  const canSignIn = authState.emailConfirmed;
+  const pendingEmailConfirm = authState.exists && !authState.emailConfirmed;
 
   // Logged in & email matches → auto-redirect to API to accept.
   if (user && user.email?.toLowerCase() === inviteEmail) {
@@ -79,9 +77,8 @@ export default async function InvitePage({ searchParams }: Props) {
 
   // Not logged in: existing user → login; new user → signup.
   const acceptRedirect = `/api/invitations/accept?token=${token}&redirect=/dashboard`;
-  const targetPath = accountExists
-    ? `/login?redirectTo=${encodeURIComponent(acceptRedirect)}&email=${encodeURIComponent(invite.email)}`
-    : `/signup?invite=${token}&email=${encodeURIComponent(invite.email)}`;
+  const signupPath = `/signup?invite=${token}&email=${encodeURIComponent(invite.email)}`;
+  const loginPath = `/login?redirectTo=${encodeURIComponent(acceptRedirect)}&email=${encodeURIComponent(invite.email)}`;
 
   return (
     <InviteCard project={invite.projects}>
@@ -95,11 +92,17 @@ export default async function InvitePage({ searchParams }: Props) {
         </p>
       </div>
 
-      <Button asChild size="lg" className="w-full">
-        <Link href={targetPath}>
-          {accountExists ? 'Sign in to accept' : 'Create account to accept'}
-        </Link>
-      </Button>
+      {pendingEmailConfirm ? (
+        <InviteEmailConfirmPanel email={invite.email} inviteToken={token} />
+      ) : canSignIn ? (
+        <Button asChild size="lg" className="w-full">
+          <Link href={loginPath}>Sign in to accept</Link>
+        </Button>
+      ) : (
+        <Button asChild size="lg" className="w-full">
+          <Link href={signupPath}>Create account to accept</Link>
+        </Button>
+      )}
     </InviteCard>
   );
 }
