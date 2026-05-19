@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { ProjectAnnualFundDefinitionsPanel } from '@/components/projects/project-annual-fund-definitions-panel';
-import { ProjectAnnualGrantsOverview } from '@/components/projects/project-annual-grants-overview';
 import { ProjectAnnualPolicyMilestones } from '@/components/projects/project-annual-policy-milestones';
 import type { Database } from '@/types/database.generated';
 import type { CarryOverPolicy } from '@/types/database';
@@ -243,17 +242,6 @@ export function ProjectSettingsForm({ project }: { project: ProjectRow }) {
 
         <div className="space-y-2 border-t border-border pt-4">
           <ProjectAnnualFundDefinitionsPanel />
-        </div>
-
-        <div className="space-y-2 border-t border-border pt-4">
-          <h3 className="text-sm font-semibold text-foreground">Team annual funds</h3>
-          <p className="text-xs text-muted-foreground">
-            All entitlement rows for the team (active, upcoming, ended). Use <strong>Edit</strong> to attach a
-            global fund template and set allocated days per member. Create templates in the section above (shared
-            across every project). Legacy rows: changing days updates the member&apos;s annual total on{' '}
-            <strong>Manage members</strong> (total + carried over).
-          </p>
-          <ProjectAnnualGrantsOverview projectId={project.id} projectSlug={project.slug} />
         </div>
 
         <div className="flex flex-wrap gap-3">
