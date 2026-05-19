@@ -8,6 +8,7 @@ import { fetchApprovedUsageGloballyForUser } from '@/lib/leave/approved-usage-fr
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
+import { realignAnnualGrantAllocationsForMember } from '@/lib/leave/entitlement-grants';
 import { canManageProject, canReviewLeaveForRole } from '@/lib/projects/access';
 import { createServiceClient } from '@/lib/supabase/server';
 import { formatRoleLabel } from '@/lib/email/format';
@@ -112,8 +113,9 @@ export default async function ProjectMemberProfilePage({
 
   let grantsData = grantRows || [];
 
+  const service = createServiceClient();
+
   if (assignedTemplateIds.length > 0) {
-    const service = createServiceClient();
     const ensure = await ensureMemberFundGrantsForAssignments(service, {
       projectId,
       userId: params.userId,
@@ -132,6 +134,11 @@ export default async function ProjectMemberProfilePage({
         grantsData = refreshedGrants;
       }
     }
+  }
+
+  const realign = await realignAnnualGrantAllocationsForMember(service, projectId, params.userId);
+  if (realign.error) {
+    console.error('[member profile] realignAnnualGrantAllocationsForMember', realign.error);
   }
 
   const defLabelMap = new Map((defRows || []).map((d) => [d.id as string, d.label as string]));

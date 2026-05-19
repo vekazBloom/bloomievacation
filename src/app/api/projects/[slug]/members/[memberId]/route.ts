@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
 import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
+import { realignAnnualGrantAllocationsForMember } from '@/lib/leave/entitlement-grants';
 import { replaceUserAnnualFundAssignmentsAndSyncLegacy } from '@/lib/leave/sync-user-annual-definition-assignments';
 import { canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
@@ -117,6 +118,15 @@ export async function PATCH(
     });
     if (ensureGrants.error) {
       return NextResponse.json({ error: ensureGrants.error }, { status: 400 });
+    }
+
+    const realign = await realignAnnualGrantAllocationsForMember(
+      service,
+      project.id,
+      data.user_id as string
+    );
+    if (realign.error) {
+      return NextResponse.json({ error: realign.error }, { status: 400 });
     }
   }
 

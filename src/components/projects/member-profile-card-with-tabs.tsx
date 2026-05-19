@@ -18,24 +18,31 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { dateInGrantWindow } from '@/lib/leave/entitlement-grants';
 import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
 import { getInitials } from '@/lib/utils';
 import { projectPath } from '@/lib/projects/paths';
 
-function approvedOnGrant(lines: MemberFundAllocationLine[], grantId: string): number {
+function allocationMatchesGrant(line: MemberFundAllocationLine, grant: MemberFundGrant): boolean {
+  if (line.grant_id !== grant.id) return false;
+  return dateInGrantWindow(grant, line.start_date);
+}
+
+function approvedOnGrant(lines: MemberFundAllocationLine[], grant: MemberFundGrant): number {
   let s = 0;
   for (const line of lines) {
-    if (line.grant_id !== grantId || line.status !== 'approved') continue;
+    if (line.status !== 'approved') continue;
+    if (!allocationMatchesGrant(line, grant)) continue;
     s += Number(line.working_days || 0);
   }
   return s;
 }
 
-function reservedOnGrant(lines: MemberFundAllocationLine[], grantId: string): number {
+function reservedOnGrant(lines: MemberFundAllocationLine[], grant: MemberFundGrant): number {
   let s = 0;
   for (const line of lines) {
-    if (line.grant_id !== grantId) continue;
     if (line.status !== 'pending' && line.status !== 'approved') continue;
+    if (!allocationMatchesGrant(line, grant)) continue;
     s += Number(line.working_days || 0);
   }
   return s;
@@ -51,6 +58,10 @@ type AnnualFundOption = {
 };
 
 function pickPrimaryGrantForDefinition(grantList: MemberFundGrant[]): MemberFundGrant {
+  const nonLegacy = grantList.filter((g) => g.source !== 'legacy_migration');
+  if (nonLegacy.length > 0) {
+    return [...nonLegacy].sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
+  }
   const legacy = grantList.find((g) => g.source === 'legacy_migration');
   if (legacy) return legacy;
   return [...grantList].sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
@@ -203,7 +214,7 @@ export function MemberProfileCardWithTabs({
 
   const annualDisplay = useMemo(() => {
     if (selectedGrant) {
-      const used = approvedOnGrant(allocationLines, selectedGrant.id);
+      const used = approvedOnGrant(allocationLines, selectedGrant);
       const total = Number(selectedGrant.days_allocated || 0);
       return { used, total };
     }
@@ -213,9 +224,7 @@ export function MemberProfileCardWithTabs({
     };
   }, [allocationLines, annualGlobalApproved, annualProjectPool, selectedGrant]);
 
-  const reservedOnSelected = selectedGrant
-    ? reservedOnGrant(allocationLines, selectedGrant.id)
-    : 0;
+  const reservedOnSelected = selectedGrant ? reservedOnGrant(allocationLines, selectedGrant) : 0;
 
   const sickDisplay = useMemo(() => {
     if (selectedGrant) {

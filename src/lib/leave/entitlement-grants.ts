@@ -25,6 +25,98 @@ export function grantsEligibleForStartDate(grants: AnnualGrantRow[], startDate: 
   return grants.filter((g) => dateInGrantWindow(g, startDate));
 }
 
+/** When several funds cover the same start date, pick the most specific grant row. */
+export function pickBestGrantForStartDate(grants: AnnualGrantRow[], startDate: string): AnnualGrantRow {
+  if (grants.length === 1) return grants[0];
+
+  const startYear = Number(startDate.slice(0, 4));
+  const sameYear = Number.isFinite(startYear)
+    ? grants.filter((g) => g.grant_year === startYear)
+    : [];
+  if (sameYear.length === 1) return sameYear[0];
+  if (sameYear.length > 1) {
+    const nonLegacy = sameYear.filter((g) => g.source !== 'legacy_migration');
+    if (nonLegacy.length === 1) return nonLegacy[0];
+    if (nonLegacy.length > 0) {
+      return [...nonLegacy].sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
+    }
+  }
+
+  const nonLegacy = grants.filter((g) => g.source !== 'legacy_migration');
+  if (nonLegacy.length === 1) return nonLegacy[0];
+  if (nonLegacy.length > 0) {
+    return [...nonLegacy].sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
+  }
+
+  return [...grants].sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0];
+}
+
+/**
+ * Re-attach pending/approved annual requests to the grant whose validity window matches start_date.
+ * Fixes legacy backfill that put everything on legacy_migration.
+ */
+export async function realignAnnualGrantAllocationsForMember(
+  supabase: AppSupabase,
+  projectId: string,
+  userId: string
+): Promise<{ error: string | null; updated: number }> {
+  const grants = await fetchGrantsForMember(supabase, projectId, userId);
+  if (grants.length === 0) return { error: null, updated: 0 };
+
+  const { data: requests, error: reqErr } = await supabase
+    .from('leave_requests')
+    .select('id, start_date, working_days_count')
+    .eq('project_id', projectId)
+    .eq('user_id', userId)
+    .eq('type', 'annual')
+    .in('status', ['pending', 'approved']);
+
+  if (reqErr) return { error: reqErr.message, updated: 0 };
+
+  let updated = 0;
+
+  for (const lr of requests || []) {
+    const startDate = lr.start_date as string;
+    const workingDays = Number(lr.working_days_count ?? 0);
+    if (!startDate || !Number.isFinite(workingDays) || workingDays <= 0) continue;
+
+    const eligible = grantsEligibleForStartDate(grants, startDate);
+    if (eligible.length === 0) continue;
+
+    const target = pickBestGrantForStartDate(eligible, startDate);
+
+    const { data: existing } = await supabase
+      .from('leave_request_grant_allocations')
+      .select('grant_id, working_days')
+      .eq('leave_request_id', lr.id as string);
+
+    const rows = existing || [];
+    const alreadyCorrect =
+      rows.length === 1 &&
+      rows[0].grant_id === target.id &&
+      Math.abs(Number(rows[0].working_days || 0) - workingDays) < 0.001;
+
+    if (alreadyCorrect) continue;
+
+    const { error: delErr } = await supabase
+      .from('leave_request_grant_allocations')
+      .delete()
+      .eq('leave_request_id', lr.id as string);
+    if (delErr) return { error: delErr.message, updated };
+
+    const { error: insErr } = await supabase.from('leave_request_grant_allocations').insert({
+      leave_request_id: lr.id as string,
+      grant_id: target.id,
+      working_days: workingDays,
+    });
+    if (insErr) return { error: insErr.message, updated };
+
+    updated += 1;
+  }
+
+  return { error: null, updated };
+}
+
 export function firstUseByDateForGrantYear(
   grantYear: number,
   month: number | null | undefined,

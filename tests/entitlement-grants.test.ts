@@ -4,6 +4,7 @@ import {
   dateInGrantWindow,
   grantRemaining,
   grantsEligibleForStartDate,
+  pickBestGrantForStartDate,
   validateAllocationTotals,
   type AnnualGrantRow,
 } from '../src/lib/leave/entitlement-grants';
@@ -42,6 +43,18 @@ test('dateInGrantWindow respects inclusive bounds', () => {
 test('grantsEligibleForStartDate returns overlapping funds', () => {
   const eligible = grantsEligibleForStartDate([g2025, g2026], '2026-03-15');
   assert.equal(eligible.length, 2);
+});
+
+test('pickBestGrantForStartDate prefers grant_year matching start year', () => {
+  const legacy2025: AnnualGrantRow = {
+    ...g2025,
+    id: 'legacy',
+    source: 'legacy_migration',
+    valid_to: '2027-07-01',
+  };
+  const eligible = grantsEligibleForStartDate([legacy2025, g2026], '2026-03-15');
+  const picked = pickBestGrantForStartDate(eligible, '2026-03-15');
+  assert.equal(picked.id, g2026.id);
 });
 
 test('validateAllocationTotals enforces sum and positivity', () => {
