@@ -144,12 +144,13 @@ export function ProjectAnnualFundDefinitionsPanel() {
       <div>
         <h3 className="text-sm font-semibold text-foreground">Annual fund definitions (global)</h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          These templates are <strong>shared across all projects</strong>. Members pick one for their legacy annual
-          pool on <strong>Manage members</strong>; only the day count is edited per person there. Dates and label
-          follow the selected template.
+          These templates are <strong>shared across all projects</strong>. On <strong>Manage members</strong>, assign
+          one or more funds per person. On each member&apos;s profile, pick a fund and set{' '}
+          <strong>allocated days</strong> for that fund (can differ per person).
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Editing a template updates every entitlement grant still linked to it in every project.
+          Editing a template updates label and validity on every entitlement grant still linked to it in every
+          project.
         </p>
       </div>
 

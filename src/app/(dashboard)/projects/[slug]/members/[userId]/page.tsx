@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { fetchApprovedUsageGloballyForUser } from '@/lib/leave/approved-usage-from-requests';
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
+import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
 import { canManageProject, canReviewLeaveForRole } from '@/lib/projects/access';
+import { createServiceClient } from '@/lib/supabase/server';
 import { formatRoleLabel } from '@/lib/email/format';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
@@ -108,9 +110,33 @@ export default async function ProjectMemberProfilePage({
   const assignedTemplateIds =
     fromAssignments.length > 0 ? fromAssignments : legacyDefId ? [legacyDefId] : [];
 
+  let grantsData = grantRows || [];
+
+  if (assignedTemplateIds.length > 0) {
+    const service = createServiceClient();
+    const ensure = await ensureMemberFundGrantsForAssignments(service, {
+      projectId,
+      userId: params.userId,
+      assignedDefinitionIds: assignedTemplateIds,
+    });
+    if (ensure.error) {
+      console.error('[member profile] ensureMemberFundGrantsForAssignments', ensure.error);
+    } else {
+      const { data: refreshedGrants } = await supabase
+        .from('annual_entitlement_grants')
+        .select('id, label, grant_year, days_allocated, valid_from, valid_to, source, definition_id')
+        .eq('project_id', projectId)
+        .eq('user_id', params.userId)
+        .order('valid_from', { ascending: true });
+      if (refreshedGrants) {
+        grantsData = refreshedGrants;
+      }
+    }
+  }
+
   const defLabelMap = new Map((defRows || []).map((d) => [d.id as string, d.label as string]));
 
-  const memberFundsGrants: MemberFundGrant[] = (grantRows || []).map((row) => {
+  const memberFundsGrants: MemberFundGrant[] = grantsData.map((row) => {
     const defId = (row.definition_id as string | null) ?? null;
     return {
       id: row.id as string,

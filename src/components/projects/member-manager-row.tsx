@@ -176,8 +176,8 @@ export function MemberManagerRow({
           )}
         </div>
         <p className="text-[11px] leading-snug text-muted-foreground">
-          Checked templates apply on every project this person joins. The legacy annual pool uses the first template
-          (sort order, then name) for label and dates on each project.
+          Checked funds apply on every project this person joins. Set how many days each person gets per fund on
+          their member profile.
         </p>
       </div>
 

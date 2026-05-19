@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
+import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
 import { replaceUserAnnualFundAssignmentsAndSyncLegacy } from '@/lib/leave/sync-user-annual-definition-assignments';
 import { canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
@@ -107,6 +108,15 @@ export async function PATCH(
     );
     if (syncAssign.error) {
       return NextResponse.json({ error: syncAssign.error }, { status: 400 });
+    }
+
+    const ensureGrants = await ensureMemberFundGrantsForAssignments(service, {
+      projectId: project.id,
+      userId: data.user_id as string,
+      assignedDefinitionIds: idsToApply,
+    });
+    if (ensureGrants.error) {
+      return NextResponse.json({ error: ensureGrants.error }, { status: 400 });
     }
   }
 

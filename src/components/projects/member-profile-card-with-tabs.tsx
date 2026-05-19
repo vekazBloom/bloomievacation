@@ -47,7 +47,7 @@ const selectClassName =
 type AnnualFundOption = {
   key: string;
   label: string;
-  grantId: string;
+  grantId: string | null;
 };
 
 function pickPrimaryGrantForDefinition(grantList: MemberFundGrant[]): MemberFundGrant {
@@ -58,7 +58,8 @@ function pickPrimaryGrantForDefinition(grantList: MemberFundGrant[]): MemberFund
 
 function buildAnnualFundOptions(
   grants: MemberFundGrant[],
-  fundDefinitions: Array<{ id: string; label: string }>
+  fundDefinitions: Array<{ id: string; label: string }>,
+  assignedTemplateIds: string[]
 ): AnnualFundOption[] {
   const defLabelById = new Map(fundDefinitions.map((d) => [d.id, d.label]));
   const byDefinition = new Map<string, MemberFundGrant[]>();
@@ -74,13 +75,31 @@ function buildAnnualFundOptions(
     }
   }
 
+  const definitionIds = [
+    ...new Set([
+      ...assignedTemplateIds.filter(Boolean),
+      ...(grants.map((g) => g.definition_id).filter(Boolean) as string[]),
+    ]),
+  ];
+
   const options: AnnualFundOption[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const definitionId of definitionIds) {
+    const grantList = byDefinition.get(definitionId) || [];
+    const grant = grantList.length > 0 ? pickPrimaryGrantForDefinition(grantList) : null;
+    const label = defLabelById.get(definitionId) || grant?.definition_label || grant?.label || 'Annual fund';
+    options.push({ key: definitionId, label, grantId: grant?.id ?? null });
+    seenKeys.add(definitionId);
+  }
 
   for (const [definitionId, grantList] of byDefinition) {
+    if (seenKeys.has(definitionId)) continue;
     const grant = pickPrimaryGrantForDefinition(grantList);
     const label =
       defLabelById.get(definitionId) || grant.definition_label || grant.label || 'Annual fund';
     options.push({ key: definitionId, label, grantId: grant.id });
+    seenKeys.add(definitionId);
   }
 
   for (const grant of unlinked) {
@@ -142,8 +161,8 @@ export function MemberProfileCardWithTabs({
   const router = useRouter();
 
   const fundOptions = useMemo(
-    () => buildAnnualFundOptions(grants, fundDefinitions),
-    [grants, fundDefinitions]
+    () => buildAnnualFundOptions(grants, fundDefinitions, assignedTemplateIds),
+    [grants, fundDefinitions, assignedTemplateIds]
   );
 
   const [selectedFundKey, setSelectedFundKey] = useState<string | null>(null);
@@ -167,11 +186,10 @@ export function MemberProfileCardWithTabs({
     [fundOptions, selectedFundKey]
   );
 
-  const selectedGrant = useMemo(
-    () =>
-      selectedFundOption ? grants.find((g) => g.id === selectedFundOption.grantId) ?? null : null,
-    [grants, selectedFundOption]
-  );
+  const selectedGrant = useMemo(() => {
+    if (!selectedFundOption?.grantId) return null;
+    return grants.find((g) => g.id === selectedFundOption.grantId) ?? null;
+  }, [grants, selectedFundOption]);
 
   const summaryGrantId = selectedGrant?.id ?? null;
 
@@ -214,6 +232,10 @@ export function MemberProfileCardWithTabs({
   }, [selectedGrant, religiousGlobalApproved, religiousProjectApproved, religiousProjectTotal]);
 
   async function saveGrantAllocation() {
+    if (!selectedFundOption?.grantId) {
+      toast.error('This fund is not set up for this member yet. Save fund assignments on Manage members first.');
+      return;
+    }
     if (!selectedGrant) return;
     const days = Number(editDays);
     if (!Number.isFinite(days) || days < 0) {
