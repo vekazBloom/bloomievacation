@@ -25,6 +25,7 @@ export type OverviewAllocationRow = {
     status: string;
     type: string;
     start_date: string;
+    user_id: string;
   } | null;
 };
 
@@ -55,7 +56,7 @@ function pct(used: number, total: number) {
 
 function normalizeLeaveRequest(
   row: OverviewAllocationRow['leave_requests']
-): { status: string; type: string; start_date: string } | null {
+): { status: string; type: string; start_date: string; user_id: string } | null {
   if (!row) return null;
   if (Array.isArray(row)) return row[0] ?? null;
   return row;
@@ -193,20 +194,28 @@ export function buildMemberAnnualBalancesByFund(
       byUser[grant.user_id] = current;
     }
 
+    const countedRequestIds = new Set<string>();
+
     for (const allocation of allocations) {
       const leaveRequest = normalizeLeaveRequest(allocation.leave_requests);
       if (!leaveRequest || leaveRequest.status !== 'approved' || leaveRequest.type !== 'annual') continue;
 
-      const eligible = grantsEligibleForStartDate(pickerGrants, leaveRequest.start_date);
+      const requestKey = `${leaveRequest.user_id}:${allocation.leave_request_id}`;
+      if (countedRequestIds.has(requestKey)) continue;
+
+      const memberPickerGrants = pickerGrants.filter((grant) => grant.user_id === leaveRequest.user_id);
+      const eligible = grantsEligibleForStartDate(memberPickerGrants, leaveRequest.start_date);
       if (eligible.length === 0) continue;
 
       const targetGrant = pickBestGrantForStartDate(eligible, leaveRequest.start_date);
       const targetOverview = grantsById.get(targetGrant.id);
       if (!targetOverview || targetOverview.definition_id !== definition.id) continue;
 
-      const current = byUser[targetOverview.user_id] || { used: 0, total: 0 };
+      countedRequestIds.add(requestKey);
+
+      const current = byUser[leaveRequest.user_id] || { used: 0, total: 0 };
       current.used += Number(allocation.working_days || 0);
-      byUser[targetOverview.user_id] = current;
+      byUser[leaveRequest.user_id] = current;
     }
 
     result[definition.id] = byUser;

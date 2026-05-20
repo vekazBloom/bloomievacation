@@ -47,7 +47,7 @@ export async function ProjectTeamMembersSection({
     grantIds.length > 0
       ? await supabase
           .from('leave_request_grant_allocations')
-          .select('grant_id, leave_request_id, working_days, leave_requests(status, type, start_date)')
+          .select('grant_id, leave_request_id, working_days, leave_requests(status, type, start_date, user_id)')
           .in('grant_id', grantIds)
       : { data: [] };
 
