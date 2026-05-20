@@ -1,10 +1,10 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { fetchApprovedUsageGloballyForUsers } from '@/lib/leave/approved-usage-from-requests';
 import { LeaveRequestsPanel } from '@/components/leave/leave-requests-panel';
 import { ProjectOverviewInsightsFallback } from '@/components/projects/project-overview-insights-fallback';
 import { ProjectOverviewInsightsSection } from '@/components/projects/project-overview-insights-section';
+import { ProjectTeamMembersSection } from '@/components/projects/project-team-members-section';
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
@@ -13,11 +13,9 @@ import { getProjectBySlug } from '@/lib/projects/resolve';
 import { formatPolicyDate, milestoneForMonthDay } from '@/lib/leave/annual-policy-dates';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { CalendarDays, ClipboardList, Settings, Users, Send } from 'lucide-react';
 import { RemoteImage } from '@/components/ui/remote-image';
-import { getInitials } from '@/lib/utils';
 
 export default async function ProjectPage({ params }: { params: { slug: string } }) {
   const session = await getDashboardSession();
@@ -42,13 +40,7 @@ export default async function ProjectPage({ params }: { params: { slug: string }
   const isAdmin = myMembership.role === 'admin';
   const canReview = canReviewLeaveForRole(profile.is_system_admin, myMembership.role);
 
-  const [{ data: members }, { data: pendingRequests }] = await Promise.all([
-    supabase
-      .from('project_members')
-      .select(
-        'user_id, role, annual_leave_total, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(id, name, email, avatar_url)'
-      )
-      .eq('project_id', projectId),
+  const [{ data: pendingRequests }] = await Promise.all([
     canReview
       ? supabase
           .from('leave_requests')
@@ -58,9 +50,6 @@ export default async function ProjectPage({ params }: { params: { slug: string }
           .order('created_at', { ascending: false })
       : Promise.resolve({ data: [] as any[] }),
   ]);
-
-  const memberUserIds = [...new Set((members ?? []).map((m: any) => m.user_id as string).filter(Boolean))];
-  const approvedByUser = await fetchApprovedUsageGloballyForUsers(supabase, memberUserIds);
 
   const pendingCount = pendingRequests?.length || 0;
 
@@ -200,77 +189,15 @@ export default async function ProjectPage({ params }: { params: { slug: string }
         </Card>
       ) : null}
 
-      {/* Members + balances table */}
-      <Card>
-        <div className="border-b border-border px-6 py-4">
-          <h2 className="font-display text-lg">Team members</h2>
-          <p className="text-sm text-muted-foreground">
-            Leave balances per person. {isAdmin && '(Click a row to edit)'}
-          </p>
-        </div>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="px-6 py-3 text-left font-medium">Name</th>
-                  <th className="px-4 py-3 text-left font-medium">Role</th>
-                  <th className="px-4 py-3 text-left font-medium">Annual</th>
-                  <th className="px-4 py-3 text-left font-medium">Sick</th>
-                  <th className="px-4 py-3 text-left font-medium">Religious</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {(members || []).map((m: any) => {
-                  const usage = approvedByUser.get(m.user_id as string);
-                  const annualUsed = usage?.annual ?? Number(m.annual_leave_used ?? 0);
-                  const sickUsed = usage?.sick ?? Number(m.sick_leave_used ?? 0);
-                  const religiousUsed = usage?.religious ?? Number(m.religious_leave_used ?? 0);
-                  return (
-                  <tr key={m.users.id} className="hover:bg-accent/30">
-                    <td className="px-6 py-3">
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-7 w-7">
-                          {m.users.avatar_url && (
-                            <AvatarImage src={m.users.avatar_url} alt={m.users.name} />
-                          )}
-                          <AvatarFallback className="text-[10px]">
-                            {getInitials(m.users.name)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0">
-                          <Link
-                            href={projectPath(project.slug, 'members', m.users.id)}
-                            className="truncate font-medium hover:underline"
-                          >
-                            {m.users.name}
-                          </Link>
-                          <p className="truncate text-xs text-muted-foreground">{m.users.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant="outline" className="font-mono uppercase">
-                        {m.role}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 font-mono tabular-nums">
-                      {annualUsed} / {m.annual_leave_total}
-                    </td>
-                    <td className="px-4 py-3 font-mono tabular-nums">
-                      {sickUsed} / {m.sick_leave_total}
-                    </td>
-                    <td className="px-4 py-3 font-mono tabular-nums">
-                      {religiousUsed} / {m.religious_leave_total}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      <Suspense
+        fallback={
+          <Card>
+            <CardContent className="p-6 text-sm text-muted-foreground">Loading team members…</CardContent>
+          </Card>
+        }
+      >
+        <ProjectTeamMembersSection projectId={projectId} projectSlug={project.slug} isAdmin={isAdmin} />
+      </Suspense>
 
     </div>
   );

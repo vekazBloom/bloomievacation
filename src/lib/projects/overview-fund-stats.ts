@@ -1,4 +1,5 @@
 import type { ProjectOverviewStats } from '@/lib/projects/overview';
+import { pickBestGrantForStartDate, grantsEligibleForStartDate, type AnnualGrantRow } from '@/lib/leave/entitlement-grants';
 
 export type AnnualFundDefinitionOption = {
   id: string;
@@ -10,6 +11,10 @@ export type OverviewGrantRow = {
   user_id: string;
   definition_id: string | null;
   days_allocated: number;
+  valid_from: string;
+  valid_to: string | null;
+  grant_year?: number | null;
+  source?: string;
 };
 
 export type OverviewAllocationRow = {
@@ -19,7 +24,13 @@ export type OverviewAllocationRow = {
   leave_requests: {
     status: string;
     type: string;
+    start_date: string;
   } | null;
+};
+
+export type MemberFundBalanceRow = {
+  used: number;
+  total: number;
 };
 
 export type FundScopedOverviewSlice = {
@@ -44,7 +55,7 @@ function pct(used: number, total: number) {
 
 function normalizeLeaveRequest(
   row: OverviewAllocationRow['leave_requests']
-): { status: string; type: string } | null {
+): { status: string; type: string; start_date: string } | null {
   if (!row) return null;
   if (Array.isArray(row)) return row[0] ?? null;
   return row;
@@ -143,6 +154,62 @@ export function buildFundScopedOverviewStats(
       },
       memberUtilization,
     };
+  }
+
+  return result;
+}
+
+function toGrantPickerRow(grant: OverviewGrantRow): AnnualGrantRow {
+  return {
+    id: grant.id,
+    project_id: '',
+    user_id: grant.user_id,
+    grant_year: grant.grant_year ?? null,
+    label: '',
+    days_allocated: grant.days_allocated,
+    valid_from: grant.valid_from,
+    valid_to: grant.valid_to,
+    source: grant.source ?? 'grant',
+  };
+}
+
+/** Per-member annual used/total for each fund definition (for team table filter). */
+export function buildMemberAnnualBalancesByFund(
+  definitions: AnnualFundDefinitionOption[],
+  grants: OverviewGrantRow[],
+  allocations: OverviewAllocationRow[]
+): Record<string, Record<string, MemberFundBalanceRow>> {
+  const grantsById = new Map(grants.map((grant) => [grant.id, grant]));
+  const pickerGrants = grants.map(toGrantPickerRow);
+  const result: Record<string, Record<string, MemberFundBalanceRow>> = {};
+
+  for (const definition of definitions) {
+    const fundGrants = grants.filter((grant) => grant.definition_id === definition.id);
+    const byUser: Record<string, MemberFundBalanceRow> = {};
+
+    for (const grant of fundGrants) {
+      const current = byUser[grant.user_id] || { used: 0, total: 0 };
+      current.total += Number(grant.days_allocated || 0);
+      byUser[grant.user_id] = current;
+    }
+
+    for (const allocation of allocations) {
+      const leaveRequest = normalizeLeaveRequest(allocation.leave_requests);
+      if (!leaveRequest || leaveRequest.status !== 'approved' || leaveRequest.type !== 'annual') continue;
+
+      const eligible = grantsEligibleForStartDate(pickerGrants, leaveRequest.start_date);
+      if (eligible.length === 0) continue;
+
+      const targetGrant = pickBestGrantForStartDate(eligible, leaveRequest.start_date);
+      const targetOverview = grantsById.get(targetGrant.id);
+      if (!targetOverview || targetOverview.definition_id !== definition.id) continue;
+
+      const current = byUser[targetOverview.user_id] || { used: 0, total: 0 };
+      current.used += Number(allocation.working_days || 0);
+      byUser[targetOverview.user_id] = current;
+    }
+
+    result[definition.id] = byUser;
   }
 
   return result;

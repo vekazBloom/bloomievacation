@@ -49,7 +49,7 @@ export async function ProjectOverviewInsightsSection({
         .order('label', { ascending: true }),
       supabase
         .from('annual_entitlement_grants')
-        .select('id, user_id, definition_id, days_allocated')
+        .select('id, user_id, definition_id, days_allocated, valid_from, valid_to, grant_year, source')
         .eq('project_id', projectId),
     ]);
 
@@ -58,7 +58,7 @@ export async function ProjectOverviewInsightsSection({
     grantIds.length > 0
       ? await supabase
           .from('leave_request_grant_allocations')
-          .select('grant_id, leave_request_id, working_days, leave_requests(status, type)')
+          .select('grant_id, leave_request_id, working_days, leave_requests(status, type, start_date)')
           .in('grant_id', grantIds)
       : { data: [] };
 
