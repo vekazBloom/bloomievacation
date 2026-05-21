@@ -1,5 +1,7 @@
 import {
   fetchGrantIdsForUserDefinition,
+  mergeGrantsPerUserByDefinition,
+  pickGrantIdForProject,
   sharedPoolDaysAllocated,
   sumAllocatedAcrossDefinitionGrants,
 } from '@/lib/leave/user-annual-funds-shared';
@@ -222,6 +224,22 @@ export function accrualDateForGrantYear(
   return `${grantYear}-${String(accrualMonth).padStart(2, '0')}-${String(accrualDay).padStart(2, '0')}`;
 }
 
+export async function fetchGrantsForUser(
+  supabase: AppSupabase,
+  userId: string
+): Promise<AnnualGrantRow[]> {
+  const { data, error } = await supabase
+    .from('annual_entitlement_grants')
+    .select(
+      'id, project_id, user_id, grant_year, label, days_allocated, valid_from, valid_to, source, definition_id'
+    )
+    .eq('user_id', userId)
+    .order('valid_from', { ascending: true });
+
+  if (error || !data) return [];
+  return data as AnnualGrantRow[];
+}
+
 export async function fetchGrantsForMember(
   supabase: AppSupabase,
   projectId: string,
@@ -308,7 +326,7 @@ export async function validateAnnualAllocationsAgainstGrants(
     return { ok: false, status: 400, error: totalCheck.error };
   }
 
-  const grants = await fetchGrantsForMember(supabase, params.projectId, params.userId);
+  const grants = await fetchGrantsForUser(supabase, params.userId);
   const grantById = new Map(grants.map((g) => [g.id, g]));
 
   for (const row of params.allocations) {
@@ -316,8 +334,8 @@ export async function validateAnnualAllocationsAgainstGrants(
     if (!grant) {
       return { ok: false, status: 400, error: 'Unknown entitlement grant in allocation.' };
     }
-    if (grant.project_id !== params.projectId || grant.user_id !== params.userId) {
-      return { ok: false, status: 400, error: 'Grant does not belong to this member/project.' };
+    if (grant.user_id !== params.userId) {
+      return { ok: false, status: 400, error: 'Grant does not belong to this member.' };
     }
 
     const definitionId = grant.definition_id ?? null;
@@ -360,21 +378,33 @@ export async function fetchAnnualGrantSplitHints(
   >;
   requiresSplit: boolean;
 }> {
-  const [grants, policy] = await Promise.all([
-    fetchGrantsForMember(supabase, projectId, userId),
+  const [allGrants, policy] = await Promise.all([
+    fetchGrantsForUser(supabase, userId),
     fetchProjectFirstUsePolicy(supabase, projectId),
   ]);
-  const eligible = grantsEligibleForStartDate(grants, startDate, policy);
+  const merged = mergeGrantsPerUserByDefinition(
+    allGrants as Parameters<typeof mergeGrantsPerUserByDefinition>[0],
+    projectId
+  ) as AnnualGrantRow[];
+  const eligible = grantsEligibleForStartDate(merged, startDate, policy);
   const eligibleSummaries: Array<
     Pick<AnnualGrantRow, 'id' | 'label' | 'grant_year' | 'valid_from' | 'valid_to'> & { remaining: number }
   > = [];
 
   for (const g of eligible) {
+    const displayId = pickGrantIdForProject(
+      allGrants as Parameters<typeof pickGrantIdForProject>[0],
+      userId,
+      g.definition_id ?? null,
+      g.id,
+      projectId
+    );
+    const meta = allGrants.find((row) => row.id === displayId) ?? g;
     const poolGrantIds = await fetchGrantIdsForUserDefinition(
       supabase,
       userId,
       g.definition_id ?? null,
-      g.id
+      displayId
     );
     const consumed = await sumAllocatedAcrossDefinitionGrants(supabase, poolGrantIds);
     const poolDays = await sharedPoolDaysAllocated(
@@ -384,11 +414,11 @@ export async function fetchAnnualGrantSplitHints(
       Number(g.days_allocated || 0)
     );
     eligibleSummaries.push({
-      id: g.id,
-      label: g.label,
-      grant_year: g.grant_year,
-      valid_from: g.valid_from,
-      valid_to: resolveGrantBookableEnd(g, policy.firstUseMonth, policy.firstUseDay),
+      id: displayId,
+      label: meta.label,
+      grant_year: meta.grant_year,
+      valid_from: meta.valid_from,
+      valid_to: resolveGrantBookableEnd(meta, policy.firstUseMonth, policy.firstUseDay),
       remaining: poolDays - consumed,
     });
   }

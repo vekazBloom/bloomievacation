@@ -3,8 +3,6 @@
 import { Label } from '@/components/ui/label';
 import type { AnnualFundDefinitionOption } from '@/lib/projects/overview-fund-stats';
 
-export const ALL_ANNUAL_FUNDS = 'all';
-
 const selectClassName =
   'flex h-9 min-w-[10rem] max-w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
@@ -34,7 +32,6 @@ export function AnnualFundFilterSelect({
         onChange={(event) => onChange(event.target.value)}
         className={selectClassName}
       >
-        <option value={ALL_ANNUAL_FUNDS}>All funds</option>
         {definitions.map((definition) => (
           <option key={definition.id} value={definition.id}>
             {definition.label}

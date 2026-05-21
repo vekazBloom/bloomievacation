@@ -10,6 +10,10 @@ import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
 import { resolveGrantBookableEnd, type ProjectFirstUsePolicy } from '@/lib/leave/entitlement-grants';
 import { fundPeriodLabelForAnchor, fundSourceShortLabel } from '@/lib/leave/fund-period-label';
+import {
+  formatSickLeavePoolLabel,
+  type SickLeavePoolOption,
+} from '@/lib/leave/sick-leave-pools';
 import { projectPath } from '@/lib/projects/paths';
 
 type AnnualGrantPreview = {
@@ -40,6 +44,7 @@ type GrantRow = {
   valid_to: string | null;
   source: string;
   days_allocated: number;
+  project_id?: string;
 };
 
 function todayIso(): string {
@@ -65,6 +70,8 @@ export function LeaveRequestForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [allGrants, setAllGrants] = useState<GrantRow[] | null>(null);
   const [selectedGrantId, setSelectedGrantId] = useState<string | null>(null);
+  const [sickPools, setSickPools] = useState<SickLeavePoolOption[]>([]);
+  const [selectedSickPoolId, setSelectedSickPoolId] = useState<string>('');
   const [firstUsePolicy, setFirstUsePolicy] = useState<ProjectFirstUsePolicy>({
     firstUseMonth: null,
     firstUseDay: null,
@@ -75,6 +82,7 @@ export function LeaveRequestForm({
   const grantMeta = useMemo(() => new Map(allGrants?.map((g) => [g.id, g]) ?? []), [allGrants]);
 
   const selectedGrant = selectedGrantId ? grantMeta.get(selectedGrantId) ?? null : null;
+  const selectedSickPool = sickPools.find((pool) => pool.projectId === selectedSickPoolId) ?? null;
 
   const endDateMin = startDate || undefined;
 
@@ -89,17 +97,16 @@ export function LeaveRequestForm({
 
   useEffect(() => {
     let cancelled = false;
-    async function loadGrants() {
+    async function loadFundOptions() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user || cancelled) return;
 
-      const [{ data: grantData, error }, { data: projectData }] = await Promise.all([
+      const [{ data: grantData, error }, { data: projectData }, { data: memberships }] = await Promise.all([
         supabase
           .from('annual_entitlement_grants')
-          .select('id, label, grant_year, valid_from, valid_to, source, days_allocated')
-          .eq('project_id', projectId)
+          .select('id, label, grant_year, valid_from, valid_to, source, days_allocated, project_id')
           .eq('user_id', user.id)
           .order('valid_from', { ascending: true }),
         supabase
@@ -107,20 +114,44 @@ export function LeaveRequestForm({
           .select('annual_first_use_by_month, annual_first_use_by_day')
           .eq('id', projectId)
           .maybeSingle(),
+        supabase
+          .from('project_members')
+          .select('project_id, sick_leave_total, sick_leave_used, projects(name)')
+          .eq('user_id', user.id),
       ]);
 
       if (cancelled) return;
       if (error) {
         setAllGrants([]);
-        return;
+      } else {
+        setAllGrants((grantData || []) as GrantRow[]);
       }
-      setAllGrants((grantData || []) as GrantRow[]);
       setFirstUsePolicy({
         firstUseMonth: (projectData?.annual_first_use_by_month as number | null) ?? null,
         firstUseDay: (projectData?.annual_first_use_by_day as number | null) ?? null,
       });
+
+      const pools: SickLeavePoolOption[] = (memberships || []).map((row) => {
+        const project = row.projects as { name?: string } | { name?: string }[] | null;
+        const name = Array.isArray(project) ? project[0]?.name : project?.name;
+        const total = Number(row.sick_leave_total ?? 0);
+        const used = Number(row.sick_leave_used ?? 0);
+        return {
+          projectId: row.project_id as string,
+          projectName: name || 'Project',
+          sickTotal: total,
+          sickUsed: used,
+          sickRemaining: Math.max(0, total - used),
+        };
+      });
+      setSickPools(pools);
+      setSelectedSickPoolId((prev) => {
+        if (prev && pools.some((p) => p.projectId === prev)) return prev;
+        if (pools.some((p) => p.projectId === projectId)) return projectId;
+        return pools[0]?.projectId ?? '';
+      });
     }
-    void loadGrants();
+    void loadFundOptions();
     return () => {
       cancelled = true;
     };
@@ -170,16 +201,6 @@ export function LeaveRequestForm({
     setFundSplit(next);
   }, [preview?.workingDays, preview?.annualGrants?.requiresSplit, eligibleIdsKey]);
 
-  useEffect(() => {
-    if (type !== 'annual' || !preview?.annualGrants || preview.annualGrants.requiresSplit) return;
-    const el = preview.annualGrants.eligible;
-    setSelectedGrantId((prev) => {
-      if (prev) return prev;
-      if (el.length === 1) return el[0].id;
-      return null;
-    });
-  }, [preview?.annualGrants, type, eligibleIdsKey]);
-
   function fundOptionLabel(g: GrantRow): string {
     const bookableTo = resolveGrantBookableEnd(g, firstUsePolicy.firstUseMonth, firstUsePolicy.firstUseDay);
     const period = fundPeriodLabelForAnchor(anchorDate, g.valid_from, bookableTo);
@@ -190,14 +211,34 @@ export function LeaveRequestForm({
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (
-      type === 'annual' &&
-      allGrants &&
-      allGrants.length > 0 &&
-      !preview?.annualGrants?.requiresSplit &&
-      !selectedGrantId
-    ) {
-      return toast.error('Select which annual fund to use.');
+    if (type === 'annual' && allGrants && allGrants.length > 0) {
+      if (preview?.annualGrants?.requiresSplit) {
+        const eligible = preview.annualGrants.eligible;
+        const parts = eligible.map((g) => ({
+          grantId: g.id,
+          workingDays: Number(fundSplit[g.id] || 0),
+        }));
+        const sum = parts.reduce((s, p) => s + p.workingDays, 0);
+        if (Math.abs(sum - preview.workingDays) > 0.02) {
+          return toast.error(
+            `Working days split (${sum}) must equal ${preview.workingDays} for this date range.`
+          );
+        }
+        if (parts.some((p) => p.workingDays <= 0)) {
+          return toast.error('Each fund must use a positive number of days.');
+        }
+      } else if (!selectedGrantId) {
+        return toast.error('Select which annual fund to use.');
+      }
+    }
+
+    if (type === 'sick') {
+      if (sickPools.length === 0) {
+        return toast.error('No sick leave pool is available for your account.');
+      }
+      if (!selectedSickPoolId) {
+        return toast.error('Select which sick leave pool (project) to use.');
+      }
     }
 
     setIsSubmitting(true);
@@ -232,37 +273,24 @@ export function LeaveRequestForm({
       attachmentUrl,
     };
 
+    if (type === 'sick') {
+      body.balanceProjectId = selectedSickPoolId;
+    }
+
     if (type === 'annual' && preview?.annualGrants?.requiresSplit) {
       const eligible = preview.annualGrants.eligible;
-      const parts = eligible.map((g) => ({
+      body.annualAllocations = eligible.map((g) => ({
         grantId: g.id,
         workingDays: Number(fundSplit[g.id] || 0),
       }));
-      const sum = parts.reduce((s, p) => s + p.workingDays, 0);
-      if (Math.abs(sum - preview.workingDays) > 0.02) {
-        setIsSubmitting(false);
-        return toast.error(
-          `Working days split (${sum}) must equal ${preview.workingDays} for this date range.`
-        );
-      }
-      if (parts.some((p) => p.workingDays <= 0)) {
-        setIsSubmitting(false);
-        return toast.error('Each fund must use a positive number of days.');
-      }
-      body.annualAllocations = parts;
     } else if (
       type === 'annual' &&
       preview?.annualGrants &&
       !preview.annualGrants.requiresSplit &&
-      preview.workingDays > 0
+      preview.workingDays > 0 &&
+      selectedGrantId
     ) {
-      if (selectedGrantId) {
-        body.annualAllocations = [{ grantId: selectedGrantId, workingDays: preview.workingDays }];
-      } else if (preview.annualGrants.eligible.length === 1) {
-        body.annualAllocations = [
-          { grantId: preview.annualGrants.eligible[0].id, workingDays: preview.workingDays },
-        ];
-      }
+      body.annualAllocations = [{ grantId: selectedGrantId, workingDays: preview.workingDays }];
     }
 
     const response = await fetch('/api/leave-requests', {
@@ -279,8 +307,10 @@ export function LeaveRequestForm({
     router.refresh();
   }
 
-  const showFundDropdown =
+  const showAnnualFundDropdown =
     type === 'annual' && allGrants && allGrants.length > 0 && !preview?.annualGrants?.requiresSplit;
+
+  const showSickFundDropdown = type === 'sick' && sickPools.length > 0;
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
@@ -297,16 +327,21 @@ export function LeaveRequestForm({
         </select>
       </div>
 
-      {showFundDropdown ? (
+      {showAnnualFundDropdown ? (
         <div className="space-y-2">
-          <Label htmlFor="annual-fund">Annual fund</Label>
+          <Label htmlFor="annual-fund">
+            Annual fund <span className="text-destructive">*</span>
+          </Label>
           <select
             id="annual-fund"
+            required
             value={selectedGrantId ?? ''}
             onChange={(e) => setSelectedGrantId(e.target.value === '' ? null : e.target.value)}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
-            <option value="">Select fund…</option>
+            <option value="" disabled>
+              Select fund…
+            </option>
             {(allGrants || []).map((g) => (
               <option key={g.id} value={g.id}>
                 {fundOptionLabel(g)}
@@ -314,9 +349,36 @@ export function LeaveRequestForm({
             ))}
           </select>
           <p className="text-xs text-muted-foreground">
-            Choose the fund first, then any start and end dates. Days are taken from the fund you select, not
-            from the calendar year of the leave. Tags (<strong>Active</strong> / <strong>Past</strong>) are hints
-            only — they do not limit the date picker.
+            You must choose a fund before submitting. Days are taken from that fund, not from a global
+            team total.
+          </p>
+        </div>
+      ) : null}
+
+      {showSickFundDropdown ? (
+        <div className="space-y-2">
+          <Label htmlFor="sick-fund">
+            Sick leave pool <span className="text-destructive">*</span>
+          </Label>
+          <select
+            id="sick-fund"
+            required
+            value={selectedSickPoolId}
+            onChange={(e) => setSelectedSickPoolId(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="" disabled>
+              Select project pool…
+            </option>
+            {sickPools.map((pool) => (
+              <option key={pool.projectId} value={pool.projectId}>
+                {formatSickLeavePoolLabel(pool)}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Choose which project&apos;s sick allowance this request uses. You cannot book against a generic
+            global pool without selecting one.
           </p>
         </div>
       ) : null}
@@ -338,8 +400,8 @@ export function LeaveRequestForm({
             id="end-date"
             type="date"
             value={endDate}
-            min={endDateMin}
             onChange={(e) => setEndDate(e.target.value)}
+            min={endDateMin}
             required
           />
         </div>
@@ -381,19 +443,6 @@ export function LeaveRequestForm({
                     (see your profile).
                   </p>
                 </div>
-              ) : preview.annualGrants.eligible.length === 0 && !selectedGrantId ? (
-                <div className="space-y-1 border-t border-border pt-3 text-sm text-amber-800 dark:text-amber-200">
-                  <p className="font-medium">No fund covers the first day</p>
-                  <p>Select an annual fund above to book against that pool, or change the start date.</p>
-                </div>
-              ) : preview.annualGrants.eligible.length === 0 && selectedGrant ? (
-                <div className="space-y-1 border-t border-border pt-3 text-sm text-muted-foreground">
-                  <p className="font-medium">Booking from selected fund</p>
-                  <p>
-                    <strong>{preview.workingDays}</strong> working day(s) from{' '}
-                    <strong>{selectedGrant.label}</strong>.
-                  </p>
-                </div>
               ) : preview.annualGrants.requiresSplit ? (
                 <div className="space-y-2 border-t border-border pt-3">
                   <p className="font-medium">Split across annual funds</p>
@@ -421,6 +470,7 @@ export function LeaveRequestForm({
                             type="number"
                             step="0.1"
                             min={0.1}
+                            required
                             value={fundSplit[g.id] ?? ''}
                             onChange={(e) => setFundSplit((prev) => ({ ...prev, [g.id]: e.target.value }))}
                           />
@@ -434,11 +484,22 @@ export function LeaveRequestForm({
                   <p className="font-medium">Booking summary</p>
                   <p className="text-sm text-muted-foreground">
                     <strong>{preview.workingDays}</strong> working day(s) from{' '}
-                    <strong>{selectedGrant?.label ?? 'the fund you selected'}</strong>.
+                    <strong>{selectedGrant?.label ?? 'select a fund above'}</strong>.
                   </p>
                 </div>
               )}
             </>
+          ) : null}
+
+          {type === 'sick' && selectedSickPool ? (
+            <div className="space-y-1 border-t border-border pt-3 text-sm text-muted-foreground">
+              <p className="font-medium">Sick leave pool</p>
+              <p>
+                <strong>{preview.workingDays}</strong> working day(s) from{' '}
+                <strong>{selectedSickPool.projectName}</strong> ({selectedSickPool.sickRemaining.toFixed(0)}{' '}
+                days remaining on that pool).
+              </p>
+            </div>
           ) : null}
         </div>
       ) : null}

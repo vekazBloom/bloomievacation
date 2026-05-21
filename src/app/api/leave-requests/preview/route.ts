@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAnnualGrantSplitHints, fetchGrantsForMember } from '@/lib/leave/entitlement-grants';
+import { fetchAnnualGrantSplitHints, fetchGrantsForUser } from '@/lib/leave/entitlement-grants';
 import { getCurrentUser } from '@/lib/projects/access';
 
 export async function GET(request: NextRequest) {
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   let annualGrants: Awaited<ReturnType<typeof fetchAnnualGrantSplitHints>> | null = null;
   let annualGrantRowCount = 0;
   if (leaveType === 'annual' && startDate) {
-    const grants = await fetchGrantsForMember(supabase, projectId, user.id);
+    const grants = await fetchGrantsForUser(supabase, user.id);
     annualGrantRowCount = grants.length;
     annualGrants = await fetchAnnualGrantSplitHints(supabase, projectId, user.id, startDate);
   }

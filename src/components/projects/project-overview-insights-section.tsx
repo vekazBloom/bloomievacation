@@ -9,6 +9,8 @@ import {
 import { buildProjectOverviewStats } from '@/lib/projects/overview';
 import {
   buildFundScopedOverviewStats,
+  loadProjectAnnualBalanceInputs,
+  pickDefaultAnnualFundDefinitionId,
   type OverviewAllocationRow,
   type OverviewGrantRow,
 } from '@/lib/projects/overview-fund-stats';
@@ -32,33 +34,27 @@ export async function ProjectOverviewInsightsSection({
   const weekEndIso = weekEnd.toISOString().split('T')[0];
   const monthStart = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
 
-  const [{ data: members }, metrics, upcomingRequests, { data: fundDefinitions }, { data: grants }] =
-    await Promise.all([
-      supabase
-        .from('project_members')
-        .select(
-          'user_id, annual_leave_total, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(name)'
-        )
-        .eq('project_id', projectId),
-      loadProjectOverviewMetrics(supabase, projectId, today, weekEndIso, monthStart),
-      fetchProjectUpcomingRequests(supabase, projectId, today),
-      supabase
-        .from('annual_fund_definitions')
-        .select('id, label')
-        .order('sort_order', { ascending: true })
-        .order('label', { ascending: true }),
-      supabase
-        .from('annual_entitlement_grants')
-        .select('id, user_id, definition_id, days_allocated, valid_from, valid_to, grant_year, source')
-        .eq('project_id', projectId),
-    ]);
+  const [{ data: members }, metrics, upcomingRequests, balanceInputs] = await Promise.all([
+    supabase
+      .from('project_members')
+      .select(
+        'user_id, annual_leave_total, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(name)'
+      )
+      .eq('project_id', projectId),
+    loadProjectOverviewMetrics(supabase, projectId, today, weekEndIso, monthStart),
+    fetchProjectUpcomingRequests(supabase, projectId, today),
+    loadProjectAnnualBalanceInputs(supabase, projectId),
+  ]);
 
-  const grantIds = (grants || []).map((grant) => grant.id as string).filter(Boolean);
+  const grants = balanceInputs.grants;
+  const grantIds = grants.map((grant) => grant.id).filter(Boolean);
   const { data: allocations } =
     grantIds.length > 0
       ? await supabase
           .from('leave_request_grant_allocations')
-          .select('grant_id, leave_request_id, working_days, leave_requests(status, type, start_date)')
+          .select(
+            'grant_id, leave_request_id, working_days, leave_requests(status, type, start_date, user_id)'
+          )
           .in('grant_id', grantIds)
       : { data: [] };
 
@@ -87,14 +83,16 @@ export async function ProjectOverviewInsightsSection({
     }
   }
 
-  const fundDefinitionOptions = (fundDefinitions || []).map((row) => ({
-    id: row.id as string,
-    label: row.label as string,
-  }));
+  const fundDefinitionOptions = balanceInputs.definitions;
+  const defaultFundId = pickDefaultAnnualFundDefinitionId(
+    fundDefinitionOptions,
+    balanceInputs.grantTotalsForPool,
+    { anchorDate: today, policy: balanceInputs.policy }
+  );
 
   const fundStats = buildFundScopedOverviewStats(
     fundDefinitionOptions,
-    (grants || []) as OverviewGrantRow[],
+    grants as OverviewGrantRow[],
     (allocations || []) as unknown as OverviewAllocationRow[],
     memberNamesByUserId
   );
@@ -111,6 +109,7 @@ export async function ProjectOverviewInsightsSection({
       stats={overviewStats}
       fundDefinitions={fundDefinitionOptions}
       fundStats={fundStats}
+      defaultFundId={defaultFundId}
     />
   );
 }

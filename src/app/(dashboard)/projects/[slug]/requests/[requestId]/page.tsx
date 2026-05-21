@@ -9,7 +9,11 @@ import { formatEmailDate, formatLeaveTypeLabel } from '@/lib/email/format';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
-import { leaveRequestUserEmbed, leaveRequestGrantAllocationsEmbed } from '@/lib/leave/queries';
+import {
+  leaveRequestUserEmbed,
+  leaveRequestGrantAllocationsEmbed,
+  leaveRequestBalanceProjectEmbed,
+} from '@/lib/leave/queries';
 import { formatDateRange } from '@/lib/utils';
 import { formatAnnualRequestFundsSummary, formatLeaveBalancePoolLine, type RequestAllocationRow } from '@/lib/leave/format-annual-request-funds';
 
@@ -44,7 +48,7 @@ export default async function ProjectRequestDetailsPage({
   const { data: request } = await supabase
     .from('leave_requests')
     .select(
-      `id, user_id, type, status, start_date, end_date, reason, decision_note, created_at, working_days_count, ${leaveRequestUserEmbed}(name, email), ${leaveRequestGrantAllocationsEmbed}`
+      `id, user_id, type, status, start_date, end_date, reason, decision_note, created_at, working_days_count, balance_project_id, ${leaveRequestUserEmbed}(name, email), ${leaveRequestBalanceProjectEmbed}, ${leaveRequestGrantAllocationsEmbed}`
     )
     .eq('id', params.requestId)
     .eq('project_id', project.id)
@@ -116,7 +120,12 @@ export default async function ProjectRequestDetailsPage({
           ) : request.type === 'sick' || request.type === 'religious' ? (
             <div className="rounded-lg border border-border p-4">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Balance pool</p>
-              <p className="mt-1 font-medium">{formatLeaveBalancePoolLine(request.type)}</p>
+              <p className="mt-1 font-medium">
+                {formatLeaveBalancePoolLine(
+                  request.type,
+                  (request as { balance_project?: { name?: string } | null }).balance_project
+                )}
+              </p>
             </div>
           ) : null}
 

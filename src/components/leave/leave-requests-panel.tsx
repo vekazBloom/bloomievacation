@@ -14,6 +14,10 @@ import {
   formatAnnualRequestFundsSummary,
   formatLeaveBalancePoolLine,
 } from '@/lib/leave/format-annual-request-funds';
+import {
+  formatSickLeavePoolLabel,
+  type SickLeavePoolOption,
+} from '@/lib/leave/sick-leave-pools';
 import { projectPath } from '@/lib/projects/paths';
 
 type MemberGrantOption = {
@@ -62,43 +66,75 @@ export function LeaveRequestsPanel({
   const [memberGrants, setMemberGrants] = useState<MemberGrantOption[]>([]);
   const [annualFundGrantId, setAnnualFundGrantId] = useState('');
   const [annualFundSplits, setAnnualFundSplits] = useState<Record<string, string>>({});
+  const [sickPools, setSickPools] = useState<SickLeavePoolOption[]>([]);
+  const [sickPoolProjectId, setSickPoolProjectId] = useState('');
 
   const pendingCount = requests.filter((request) => request.status === 'pending').length;
   const decisionRequest = rejectingId ? requests.find((r) => r.id === rejectingId) : null;
 
   useEffect(() => {
-    if (!rejectingId || !canEditRequestFunds || !projectId || !decisionRequest) {
+    if (!rejectingId || !canEditRequestFunds || !decisionRequest) {
       setMemberGrants([]);
+      setSickPools([]);
       return;
     }
-    if (decisionRequest.type !== 'annual') return;
 
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from('annual_entitlement_grants')
-        .select('id, label, grant_year, source')
-        .eq('project_id', projectId)
-        .eq('user_id', decisionRequest.user_id)
-        .order('valid_from', { ascending: true });
+      if (decisionRequest.type === 'annual') {
+        const { data, error } = await supabase
+          .from('annual_entitlement_grants')
+          .select('id, label, grant_year, source')
+          .eq('user_id', decisionRequest.user_id)
+          .order('valid_from', { ascending: true });
 
-      if (cancelled) return;
-      if (error) {
-        setMemberGrants([]);
+        if (cancelled) return;
+        setMemberGrants(error ? [] : ((data || []) as MemberGrantOption[]));
+        setSickPools([]);
         return;
       }
-      setMemberGrants((data || []) as MemberGrantOption[]);
+
+      if (decisionRequest.type === 'sick') {
+        const { data: memberships, error } = await supabase
+          .from('project_members')
+          .select('project_id, sick_leave_total, sick_leave_used, projects(name)')
+          .eq('user_id', decisionRequest.user_id);
+
+        if (cancelled) return;
+        if (error) {
+          setSickPools([]);
+          setMemberGrants([]);
+          return;
+        }
+        const pools: SickLeavePoolOption[] = (memberships || []).map((row) => {
+          const project = row.projects as { name?: string } | { name?: string }[] | null;
+          const name = Array.isArray(project) ? project[0]?.name : project?.name;
+          const total = Number(row.sick_leave_total ?? 0);
+          const used = Number(row.sick_leave_used ?? 0);
+          return {
+            projectId: row.project_id as string,
+            projectName: name || 'Project',
+            sickTotal: total,
+            sickUsed: used,
+            sickRemaining: Math.max(0, total - used),
+          };
+        });
+        setSickPools(pools);
+        setMemberGrants([]);
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [rejectingId, canEditRequestFunds, projectId, decisionRequest, supabase]);
+  }, [rejectingId, canEditRequestFunds, decisionRequest, supabase]);
 
   function resetFundEditor() {
     setAnnualFundGrantId('');
     setAnnualFundSplits({});
     setMemberGrants([]);
+    setSickPools([]);
+    setSickPoolProjectId('');
   }
 
   function closeDecisionEditor() {
@@ -112,11 +148,14 @@ export function LeaveRequestsPanel({
     status: string;
     decision_note?: string | null;
     type: string;
+    balance_project_id?: string | null;
     leave_request_grant_allocations?: RequestAllocationRow[] | null;
   }) {
     setRejectingId(request.id);
     setDecisionAction(request.status === 'approved' ? 'approve' : 'reject');
     setDecisionNote(request.decision_note || '');
+
+    setSickPoolProjectId((request.balance_project_id as string | null) ?? '');
 
     const rows = allocationRows(request);
     if (rows.length > 1) {
@@ -222,12 +261,18 @@ export function LeaveRequestsPanel({
             const isEditing = editingId === request.id;
             const isRejecting = rejectingId === request.id;
             const canEditDecision = canReview && (request.status === 'approved' || request.status === 'rejected');
-            const showFundEditor =
+            const showAnnualFundEditor =
               isRejecting &&
               canEditRequestFunds &&
               request.type === 'annual' &&
               decisionAction === 'approve' &&
               memberGrants.length > 0;
+            const showSickFundEditor =
+              isRejecting &&
+              canEditRequestFunds &&
+              request.type === 'sick' &&
+              decisionAction === 'approve' &&
+              sickPools.length > 0;
 
             return (
               <div key={request.id} className="space-y-3 px-6 py-4">
@@ -250,7 +295,7 @@ export function LeaveRequestsPanel({
                       </p>
                     ) : request.type === 'sick' || request.type === 'religious' ? (
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {formatLeaveBalancePoolLine(request.type)}
+                        {formatLeaveBalancePoolLine(request.type, request.balance_project)}
                       </p>
                     ) : null}
                     {request.reason ? (
@@ -277,7 +322,14 @@ export function LeaveRequestsPanel({
                     </Badge>
                     {canReview && request.status === 'pending' && !isRejecting ? (
                       <>
-                        <Button size="sm" onClick={() => updateRequest(request.id, { action: 'approve' }, 'Request approved')}>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setDecisionAction('approve');
+                            setDecisionNote('');
+                            openDecisionEditor(request);
+                          }}
+                        >
                           Approve
                         </Button>
                         <Button
@@ -335,7 +387,31 @@ export function LeaveRequestsPanel({
                       <option value="reject">Reject</option>
                     </select>
 
-                    {showFundEditor ? (
+                    {showSickFundEditor ? (
+                      <div className="space-y-2 rounded-md border border-dashed border-border bg-background/80 p-3">
+                        <p className="text-sm font-medium">Sick leave pool (system admin)</p>
+                        <p className="text-xs text-muted-foreground">
+                          Choose which project&apos;s sick allowance this request uses.
+                        </p>
+                        <select
+                          required
+                          value={sickPoolProjectId}
+                          onChange={(e) => setSickPoolProjectId(e.target.value)}
+                          className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                        >
+                          <option value="" disabled>
+                            Select project pool…
+                          </option>
+                          {sickPools.map((pool) => (
+                            <option key={pool.projectId} value={pool.projectId}>
+                              {formatSickLeavePoolLabel(pool)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {showAnnualFundEditor ? (
                       <div className="space-y-2 rounded-md border border-dashed border-border bg-background/80 p-3">
                         <p className="text-sm font-medium">Annual fund (system admin)</p>
                         <p className="text-xs text-muted-foreground">
@@ -415,10 +491,17 @@ export function LeaveRequestsPanel({
                             action: decisionAction,
                             decisionNote: decisionNote.trim() || null,
                           };
-                          if (showFundEditor) {
+                          if (showAnnualFundEditor) {
                             const allocations = buildAnnualAllocationsPayload(request);
                             if (!allocations) return;
                             payload.annualAllocations = allocations;
+                          }
+                          if (showSickFundEditor) {
+                            if (!sickPoolProjectId) {
+                              toast.error('Select a sick leave pool.');
+                              return;
+                            }
+                            payload.balanceProjectId = sickPoolProjectId;
                           }
                           void updateRequest(
                             request.id,

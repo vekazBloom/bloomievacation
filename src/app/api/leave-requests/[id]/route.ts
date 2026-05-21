@@ -7,13 +7,14 @@ import {
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { canEditMemberLeaveBalances, canReviewLeave, getCurrentUser } from '@/lib/projects/access';
 import {
-  fetchGrantsForMember,
+  fetchGrantsForUser,
   fetchProjectFirstUsePolicy,
   grantsEligibleForStartDate,
   validateExplicitAnnualAllocations,
   replaceAnnualAllocations,
   type AnnualAllocationInput,
 } from '@/lib/leave/entitlement-grants';
+import { fetchSickLeavePoolsForUser } from '@/lib/leave/sick-leave-pools';
 import { isValidSickLeaveAttachmentPath } from '@/lib/security/attachment';
 import { createServiceClient } from '@/lib/supabase/server';
 import { sendLeaveApprovalForwardCopies } from '@/lib/leave/approval-forward-email';
@@ -33,6 +34,7 @@ const updateSchema = z.object({
       })
     )
     .optional(),
+  balanceProjectId: z.string().uuid().optional(),
 });
 
 export async function PATCH(
@@ -67,6 +69,18 @@ export async function PATCH(
 
     const canReallocateFunds = await canEditMemberLeaveBalances(user.id);
     const allocationUpdate = parsed.data.annualAllocations;
+    let balanceProjectUpdate: string | undefined;
+
+    if (parsed.data.balanceProjectId && existing.type === 'sick') {
+      if (!canReallocateFunds) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      const pools = await fetchSickLeavePoolsForUser(supabase, existing.user_id);
+      if (!pools.some((pool) => pool.projectId === parsed.data.balanceProjectId)) {
+        return NextResponse.json({ error: 'Invalid sick leave pool for this user.' }, { status: 400 });
+      }
+      balanceProjectUpdate = parsed.data.balanceProjectId;
+    }
 
     if (allocationUpdate?.length && existing.type === 'annual') {
       if (!canReallocateFunds) {
@@ -79,10 +93,21 @@ export async function PATCH(
           { status: 400 }
         );
       }
-      const grants = await fetchGrantsForMember(supabase, existing.project_id, existing.user_id);
+      const grants = await fetchGrantsForUser(supabase, existing.user_id);
       const explicitCheck = validateExplicitAnnualAllocations(grants, allocationUpdate);
       if (!explicitCheck.ok) {
         return NextResponse.json({ error: explicitCheck.error }, { status: 400 });
+      }
+    }
+
+    if (status === 'approved' && existing.type === 'sick') {
+      const poolId =
+        balanceProjectUpdate ?? (existing.balance_project_id as string | null) ?? null;
+      if (!poolId) {
+        return NextResponse.json(
+          { error: 'Sick leave requests must have a project pool selected before approval.' },
+          { status: 400 }
+        );
       }
     }
 
@@ -94,6 +119,10 @@ export async function PATCH(
         workingDays: existing.working_days_count,
         excludeRequestId: params.id,
         annualAllocations: allocationUpdate,
+        balanceProjectId:
+          balanceProjectUpdate ??
+          (existing.balance_project_id as string | null) ??
+          undefined,
       });
       if (!balanceCheck.ok) {
         return NextResponse.json({ error: balanceCheck.error }, { status: balanceCheck.status });
@@ -107,6 +136,7 @@ export async function PATCH(
         decided_by: user.id,
         decided_at: new Date().toISOString(),
         decision_note: parsed.data.decisionNote ?? null,
+        ...(balanceProjectUpdate ? { balance_project_id: balanceProjectUpdate } : {}),
         ...(status === 'rejected' ? { approval_forward_sent_at: null } : {}),
       })
       .eq('id', params.id)
@@ -210,7 +240,7 @@ export async function PATCH(
   let resolvedAnnualAllocations: AnnualAllocationInput[] | undefined;
   if (existing.type === 'annual') {
     const [grants, policy] = await Promise.all([
-      fetchGrantsForMember(supabase, existing.project_id, existing.user_id),
+      fetchGrantsForUser(supabase, existing.user_id),
       fetchProjectFirstUsePolicy(supabase, existing.project_id),
     ]);
     resolvedAnnualAllocations = parsed.data.annualAllocations;

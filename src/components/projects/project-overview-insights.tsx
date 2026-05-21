@@ -3,10 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowRight, CalendarDays, ClipboardList, Users } from 'lucide-react';
-import {
-  ALL_ANNUAL_FUNDS,
-  AnnualFundFilterSelect,
-} from '@/components/projects/annual-fund-filter-select';
+import { AnnualFundFilterSelect } from '@/components/projects/annual-fund-filter-select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { ProjectOverviewStats } from '@/lib/projects/overview';
@@ -107,38 +104,28 @@ export function ProjectOverviewInsights({
   stats,
   fundDefinitions,
   fundStats,
+  defaultFundId,
 }: {
   projectSlug: string;
   stats: ProjectOverviewStats;
   fundDefinitions: AnnualFundDefinitionOption[];
   fundStats: Record<string, FundScopedOverviewSlice>;
+  defaultFundId: string;
 }) {
-  const [utilizationFund, setUtilizationFund] = useState(ALL_ANNUAL_FUNDS);
-  const [requestMixFund, setRequestMixFund] = useState(ALL_ANNUAL_FUNDS);
-  const [memberUsageFund, setMemberUsageFund] = useState(ALL_ANNUAL_FUNDS);
+  const [utilizationFund, setUtilizationFund] = useState(defaultFundId);
+  const [requestMixFund, setRequestMixFund] = useState(defaultFundId);
+  const [memberUsageFund, setMemberUsageFund] = useState(defaultFundId);
 
-  const utilizationSlice = useMemo(() => {
-    if (utilizationFund === ALL_ANNUAL_FUNDS) {
-      return {
-        annualUsed: stats.utilization.annualUsed,
-        annualTotal: stats.utilization.annualTotal,
-      };
-    }
-    return (
+  const utilizationSlice = useMemo(
+    () =>
       fundStats[utilizationFund]?.utilization ?? {
         annualUsed: 0,
         annualTotal: 0,
-      }
-    );
-  }, [fundStats, stats.utilization, utilizationFund]);
+      },
+    [fundStats, utilizationFund]
+  );
 
   const requestMixSlice = useMemo(() => {
-    if (requestMixFund === ALL_ANNUAL_FUNDS) {
-      return {
-        annual: stats.leaveTypeCounts.annual,
-        statusCounts: stats.statusCounts,
-      };
-    }
     const scoped = fundStats[requestMixFund];
     return {
       annual: scoped?.leaveTypeCounts.annual ?? 0,
@@ -149,24 +136,21 @@ export function ProjectOverviewInsights({
         cancelled: 0,
       },
     };
-  }, [fundStats, requestMixFund, stats.leaveTypeCounts.annual, stats.statusCounts]);
+  }, [fundStats, requestMixFund]);
 
-  const memberUtilization = useMemo(() => {
-    if (memberUsageFund === ALL_ANNUAL_FUNDS) {
-      return stats.memberUtilization;
-    }
-    return fundStats[memberUsageFund]?.memberUtilization ?? [];
-  }, [fundStats, memberUsageFund, stats.memberUtilization]);
+  const memberUtilization = useMemo(
+    () => fundStats[memberUsageFund]?.memberUtilization ?? [],
+    [fundStats, memberUsageFund]
+  );
 
   const requestTotal = Math.max(
     1,
     requestMixSlice.annual + stats.leaveTypeCounts.sick + stats.leaveTypeCounts.religious
   );
 
-  const selectedUtilizationFundLabel =
-    utilizationFund === ALL_ANNUAL_FUNDS
-      ? null
-      : fundDefinitions.find((definition) => definition.id === utilizationFund)?.label;
+  const selectedUtilizationFundLabel = fundDefinitions.find(
+    (definition) => definition.id === utilizationFund
+  )?.label;
 
   return (
     <div className="space-y-6">
@@ -224,7 +208,7 @@ export function ProjectOverviewInsights({
               label={
                 selectedUtilizationFundLabel
                   ? `Annual leave (${selectedUtilizationFundLabel})`
-                  : 'Annual leave'
+                  : 'Annual leave (fund)'
               }
               used={utilizationSlice.annualUsed}
               total={utilizationSlice.annualTotal}

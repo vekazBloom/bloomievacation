@@ -4,6 +4,7 @@ import { getDashboardSession } from '@/lib/auth/dashboard';
 import {
   buildMemberAnnualBalances,
   loadProjectAnnualBalanceInputs,
+  pickDefaultAnnualFundDefinitionId,
 } from '@/lib/projects/overview-fund-stats';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -37,6 +38,11 @@ export async function ProjectTeamMembersSection({
   const approvedByUser = await fetchApprovedUsageGloballyForUsers(supabase, memberUserIds);
 
   const fundDefinitionOptions = balanceInputs.definitions;
+  const defaultFundId = pickDefaultAnnualFundDefinitionId(
+    fundDefinitionOptions,
+    balanceInputs.grantTotalsForPool,
+    { policy: balanceInputs.policy }
+  );
 
   const fundBalancesByDefinition = buildMemberAnnualBalances(
     balanceInputs.definitions,
@@ -79,6 +85,7 @@ export async function ProjectTeamMembersSection({
           members={memberRows}
           fundDefinitions={fundDefinitionOptions}
           fundBalancesByDefinition={fundBalancesByDefinition}
+          defaultFundId={defaultFundId}
         />
       </CardContent>
     </Card>

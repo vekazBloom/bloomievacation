@@ -4,12 +4,16 @@ import { formatLeaveTypeLabel } from '@/lib/email/format';
 import { formatDateRange } from '@/lib/utils';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import {
-  fetchGrantsForMember,
+  fetchGrantsForUser,
   grantsEligibleForStartDate,
   grantRemaining,
-  sumAllocatedToGrant,
   type AnnualGrantRow,
 } from '@/lib/leave/entitlement-grants';
+import {
+  fetchGrantIdsForUserDefinition,
+  sharedPoolDaysAllocated,
+  sumAllocatedAcrossDefinitionGrants,
+} from '@/lib/leave/user-annual-funds-shared';
 import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
 
 type ServiceClient = AppSupabase;
@@ -24,6 +28,30 @@ export type ApprovalForwardFundBalance = {
 
 function formatPoolRemaining(remaining: number, pool: number): string {
   return `${formatAllocatedDays(remaining)} of ${formatAllocatedDays(pool)} days remaining`;
+}
+
+async function sumApprovedSickDaysForPool(
+  service: ServiceClient,
+  userId: string,
+  poolProjectId: string
+): Promise<number> {
+  const { data, error } = await service
+    .from('leave_requests')
+    .select('working_days_count, balance_project_id, project_id')
+    .eq('user_id', userId)
+    .eq('type', 'sick')
+    .eq('status', 'approved');
+
+  if (error || !data) return 0;
+
+  let sum = 0;
+  for (const row of data) {
+    const chargeProject =
+      (row.balance_project_id as string | null) ?? (row.project_id as string);
+    if (chargeProject !== poolProjectId) continue;
+    sum += Number(row.working_days_count ?? 0);
+  }
+  return sum;
 }
 
 function daysOnGrantFromRequest(
@@ -71,7 +99,7 @@ async function resolveAnnualFundBalances(
     .select('grant_id, working_days')
     .eq('leave_request_id', params.leaveRequestId);
 
-  const grants = await fetchGrantsForMember(service, params.projectId, params.userId);
+  const grants = await fetchGrantsForUser(service, params.userId);
   const targetGrants = pickAnnualGrantsForRequest(
     grants,
     params.startDate,
@@ -81,11 +109,23 @@ async function resolveAnnualFundBalances(
   const balances: ApprovalForwardFundBalance[] = [];
 
   for (const grant of targetGrants) {
-    const usedOnFund = await sumAllocatedToGrant(service, grant.id, {
+    const definitionId = grant.definition_id ?? null;
+    const poolGrantIds = await fetchGrantIdsForUserDefinition(
+      service,
+      params.userId,
+      definitionId,
+      grant.id
+    );
+    const usedOnFund = await sumAllocatedAcrossDefinitionGrants(service, poolGrantIds, {
       statuses: ['approved'],
     });
-    const pool = Number(grant.days_allocated || 0);
-    const remaining = Math.max(0, grantRemaining(grant, usedOnFund));
+    const pool = await sharedPoolDaysAllocated(
+      service,
+      params.userId,
+      definitionId,
+      Number(grant.days_allocated || 0)
+    );
+    const remaining = Math.max(0, grantRemaining({ days_allocated: pool }, usedOnFund));
     const daysThisRequest = daysOnGrantFromRequest(
       allocRows as { grant_id: string; working_days: number | string }[] | null,
       grant.id,
@@ -121,10 +161,21 @@ async function resolveLeaveApprovalBalanceSummary(
   balanceLabel: string;
 }> {
   if (params.leaveType === 'sick') {
+    const { data: lr } = await service
+      .from('leave_requests')
+      .select('balance_project_id, project_id')
+      .eq('id', params.leaveRequestId)
+      .maybeSingle();
+
+    const poolProjectId =
+      (lr?.balance_project_id as string | null) ??
+      (lr?.project_id as string | null) ??
+      params.projectId;
+
     const { data: pm } = await service
       .from('project_members')
-      .select('sick_leave_total, sick_leave_used')
-      .eq('project_id', params.projectId)
+      .select('sick_leave_total')
+      .eq('project_id', poolProjectId)
       .eq('user_id', params.userId)
       .maybeSingle();
 
@@ -137,11 +188,12 @@ async function resolveLeaveApprovalBalanceSummary(
     }
 
     const pool = Number(pm.sick_leave_total || 0);
-    const used = Number(pm.sick_leave_used || 0);
-    const remaining = Math.max(0, pool - used);
+    const usedAfter = await sumApprovedSickDaysForPool(service, params.userId, poolProjectId);
+    const remainingAfter = Math.max(0, pool - usedAfter);
+    const daysThisRequest = params.workingDaysThisRequest;
     return {
       fundBalances: [],
-      summary: formatPoolRemaining(remaining, pool),
+      summary: `${formatAllocatedDays(daysThisRequest)} of ${formatAllocatedDays(pool)} days from this approval (${formatPoolRemaining(remainingAfter, pool)})`,
       balanceLabel: 'Sick leave remaining',
     };
   }

@@ -79,7 +79,6 @@ export default async function ProjectMemberProfilePage({
     supabase
       .from('leave_requests')
       .select(leaveRequestWithUserSelect)
-      .eq('project_id', projectId)
       .eq('user_id', params.userId)
       .order('created_at', { ascending: false }),
     fetchApprovedUsageGloballyForUser(supabase, params.userId),
@@ -191,7 +190,7 @@ export default async function ProjectMemberProfilePage({
     };
   });
 
-  const grantIds = memberFundsGrants.map((g) => g.id);
+  const grantIds = [...new Set(allUserGrants.map((g) => g.id as string).filter(Boolean))];
   let memberFundAllocationLines: MemberFundAllocationLine[] = [];
   let storedAllocations: Array<{
     leave_request_id: string;
@@ -270,6 +269,7 @@ export default async function ProjectMemberProfilePage({
     (membership as { annual_leave_carried_over?: number | null }).annual_leave_carried_over ?? 0
   );
   const annualProjectPool =
+    mergedGrants.reduce((sum, grant) => sum + Number(grant.days_allocated ?? 0), 0) ||
     Number((membership as { annual_leave_total?: number | null }).annual_leave_total ?? 0) + carried;
 
   return (

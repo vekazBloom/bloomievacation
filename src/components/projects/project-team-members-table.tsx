@@ -2,10 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import {
-  ALL_ANNUAL_FUNDS,
-  AnnualFundFilterSelect,
-} from '@/components/projects/annual-fund-filter-select';
+import { AnnualFundFilterSelect } from '@/components/projects/annual-fund-filter-select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import type {
@@ -35,22 +32,23 @@ export function ProjectTeamMembersTable({
   members,
   fundDefinitions,
   fundBalancesByDefinition,
+  defaultFundId,
 }: {
   projectSlug: string;
   isAdmin: boolean;
   members: ProjectTeamMemberRow[];
   fundDefinitions: AnnualFundDefinitionOption[];
   fundBalancesByDefinition: Record<string, Record<string, MemberFundBalanceRow>>;
+  defaultFundId: string;
 }) {
-  const [fundFilter, setFundFilter] = useState<string>(ALL_ANNUAL_FUNDS);
+  const [fundFilter, setFundFilter] = useState(defaultFundId);
 
-  const selectedFundLabel = useMemo(() => {
-    if (fundFilter === ALL_ANNUAL_FUNDS) return null;
-    return fundDefinitions.find((definition) => definition.id === fundFilter)?.label ?? null;
-  }, [fundDefinitions, fundFilter]);
+  const selectedFundLabel = useMemo(
+    () => fundDefinitions.find((definition) => definition.id === fundFilter)?.label ?? null,
+    [fundDefinitions, fundFilter]
+  );
 
-  const annualColumnLabel =
-    fundFilter === ALL_ANNUAL_FUNDS ? 'Annual' : selectedFundLabel ? `Annual (${selectedFundLabel})` : 'Annual';
+  const annualColumnLabel = selectedFundLabel ? `Annual (${selectedFundLabel})` : 'Annual';
 
   return (
     <div>
@@ -58,13 +56,8 @@ export function ProjectTeamMembersTable({
         <div>
           <h2 className="font-display text-lg">Team members</h2>
           <p className="text-sm text-muted-foreground">
-            Leave balances per person. {isAdmin && '(Click a row to edit)'}
-            {fundFilter !== ALL_ANNUAL_FUNDS ? (
-              <>
-                {' '}
-                Annual column shows the selected fund; sick and religious use the team allowance.
-              </>
-            ) : null}
+            Leave balances per person. {isAdmin && '(Click a row to edit)'} Annual column shows the
+            selected fund; sick and religious use the team allowance.
           </p>
         </div>
         <AnnualFundFilterSelect
@@ -87,14 +80,9 @@ export function ProjectTeamMembersTable({
           </thead>
           <tbody className="divide-y divide-border">
             {members.map((member) => {
-              const fundBalance =
-                fundFilter === ALL_ANNUAL_FUNDS
-                  ? null
-                  : fundBalancesByDefinition[fundFilter]?.[member.userId];
-              const annualUsed =
-                fundFilter === ALL_ANNUAL_FUNDS ? member.annualUsed : fundBalance?.used ?? 0;
-              const annualTotal =
-                fundFilter === ALL_ANNUAL_FUNDS ? member.annualTotal : fundBalance?.total ?? 0;
+              const fundBalance = fundBalancesByDefinition[fundFilter]?.[member.userId];
+              const annualUsed = fundBalance?.used ?? 0;
+              const annualTotal = fundBalance?.total ?? 0;
 
               return (
                 <tr key={member.userId} className="hover:bg-accent/30">

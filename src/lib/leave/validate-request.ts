@@ -1,5 +1,5 @@
 import {
-  fetchGrantsForMember,
+  fetchGrantsForUser,
   validateAnnualAllocationsAgainstGrants,
   type AnnualAllocationInput,
 } from '@/lib/leave/entitlement-grants';
@@ -19,6 +19,8 @@ export async function assertLeaveBalance(
     workingDays: number;
     excludeRequestId?: string;
     annualAllocations?: AnnualAllocationInput[];
+    /** Sick/religious: which project team pool to charge (required for sick). */
+    balanceProjectId?: string;
   }
 ) {
   const { data: globalBalance, error: globalBalanceError } = await getUserLeaveBalance(
@@ -39,23 +41,28 @@ export async function assertLeaveBalance(
   const globalReadFailed = !tableMissing && Boolean(globalBalanceError);
 
   const useProjectScopedFallback = tableMissing || globalRowMissing || globalReadFailed;
+  const poolProjectId = params.balanceProjectId ?? params.projectId;
+  const useSickReligiousProjectPool =
+    params.type === 'sick' || params.type === 'religious';
 
-  const { data: membership, error: membershipError } = useProjectScopedFallback
-    ? await supabase
-        .from('project_members')
-        .select(
-          'annual_leave_total, annual_leave_used, annual_leave_carried_over, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used'
-        )
-        .eq('project_id', params.projectId)
-        .eq('user_id', params.userId)
-        .maybeSingle()
-    : { data: null, error: null };
+  const { data: membership, error: membershipError } =
+    useProjectScopedFallback || useSickReligiousProjectPool
+      ? await supabase
+          .from('project_members')
+          .select(
+            'annual_leave_total, annual_leave_used, annual_leave_carried_over, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used'
+          )
+          .eq('project_id', poolProjectId)
+          .eq('user_id', params.userId)
+          .maybeSingle()
+      : { data: null, error: null };
 
-  if (useProjectScopedFallback && membershipError) {
+  if ((useProjectScopedFallback || useSickReligiousProjectPool) && membershipError) {
     return { ok: false as const, status: 500, error: membershipError.message };
   }
 
-  const balanceSource = globalBalance || membership;
+  const balanceSource =
+    useSickReligiousProjectPool ? membership : globalBalance || membership;
   if (!balanceSource) {
     return {
       ok: false as const,
@@ -65,7 +72,7 @@ export async function assertLeaveBalance(
   }
 
   if (params.type === 'annual') {
-    const grants = await fetchGrantsForMember(supabase, params.projectId, params.userId);
+    const grants = await fetchGrantsForUser(supabase, params.userId);
     if (grants.length > 0) {
       let allocations = params.annualAllocations;
       if ((!allocations || allocations.length === 0) && params.excludeRequestId) {
@@ -104,9 +111,12 @@ export async function assertLeaveBalance(
     .from('leave_requests')
     .select('id, type, working_days_count')
     .eq('user_id', params.userId)
-    .eq('status', 'pending');
+    .eq('status', 'pending')
+    .eq('type', params.type);
 
-  if (useProjectScopedFallback) {
+  if (useSickReligiousProjectPool) {
+    pendingQuery = pendingQuery.eq('balance_project_id', poolProjectId);
+  } else if (useProjectScopedFallback) {
     pendingQuery = pendingQuery.eq('project_id', params.projectId);
   }
 

@@ -3,12 +3,12 @@ import { z } from 'zod';
 import { notifyRequestSubmitted } from '@/lib/leave/notify';
 import {
   fetchGrantsForMember,
-  fetchProjectFirstUsePolicy,
-  grantsEligibleForStartDate,
+  fetchGrantsForUser,
   replaceAnnualAllocations,
   validateExplicitAnnualAllocations,
   type AnnualAllocationInput,
 } from '@/lib/leave/entitlement-grants';
+import { fetchSickLeavePoolsForUser } from '@/lib/leave/sick-leave-pools';
 import { leaveRequestWithUserAvatarSelect } from '@/lib/leave/queries';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { getCurrentUser } from '@/lib/projects/access';
@@ -31,6 +31,7 @@ const createSchema = z.object({
       })
     )
     .optional(),
+  balanceProjectId: z.string().uuid().optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -62,7 +63,8 @@ export async function POST(request: NextRequest) {
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
 
-  const { projectId, type, startDate, endDate, reason, attachmentUrl, annualAllocations } = parsed.data;
+  const { projectId, type, startDate, endDate, reason, attachmentUrl, annualAllocations, balanceProjectId } =
+    parsed.data;
 
   if (attachmentUrl && type !== 'sick') {
     return NextResponse.json({ error: 'Attachments are only allowed for sick leave' }, { status: 400 });
@@ -85,41 +87,47 @@ export async function POST(request: NextRequest) {
   let resolvedAnnualAllocations: AnnualAllocationInput[] | undefined =
     type === 'annual' ? annualAllocations : undefined;
 
+  let resolvedBalanceProjectId: string | undefined;
+
   if (type === 'annual') {
-    const [grants, policy] = await Promise.all([
-      fetchGrantsForMember(supabase, projectId, user.id),
-      fetchProjectFirstUsePolicy(supabase, projectId),
-    ]);
+    const grants = await fetchGrantsForUser(supabase, user.id);
 
-    const hasExplicitAllocations =
-      Boolean(resolvedAnnualAllocations && resolvedAnnualAllocations.length > 0);
-
-    if (hasExplicitAllocations) {
-      const explicitCheck = validateExplicitAnnualAllocations(grants, resolvedAnnualAllocations!);
+    if (grants.length > 0) {
+      if (!resolvedAnnualAllocations || resolvedAnnualAllocations.length === 0) {
+        return NextResponse.json(
+          { error: 'Select which annual fund to use before submitting.' },
+          { status: 400 }
+        );
+      }
+      const explicitCheck = validateExplicitAnnualAllocations(grants, resolvedAnnualAllocations);
       if (!explicitCheck.ok) {
         return NextResponse.json({ error: explicitCheck.error }, { status: 400 });
       }
-    } else {
-      const eligible = grantsEligibleForStartDate(grants, startDate, policy);
-      if (eligible.length === 0 && grants.length > 0) {
+      const sum = resolvedAnnualAllocations.reduce((total, row) => total + row.workingDays, 0);
+      if (Math.abs(sum - wd) > 0.02) {
         return NextResponse.json(
-          { error: 'No annual entitlement fund is valid for the start date of this request.' },
+          { error: 'Annual fund days must equal the working days for this request.' },
           { status: 400 }
         );
-      }
-      if (eligible.length >= 2) {
-        return NextResponse.json(
-          {
-            error:
-              'Multiple annual funds apply to this period. Send annualAllocations: [{ grantId, workingDays }, ...] totalling your working days.',
-          },
-          { status: 400 }
-        );
-      }
-      if (eligible.length === 1) {
-        resolvedAnnualAllocations = [{ grantId: eligible[0].id, workingDays: wd }];
       }
     }
+  }
+
+  if (type === 'sick') {
+    const pools = await fetchSickLeavePoolsForUser(supabase, user.id);
+    if (pools.length === 0) {
+      return NextResponse.json({ error: 'No sick leave pool is configured for your account.' }, { status: 400 });
+    }
+    if (!balanceProjectId) {
+      return NextResponse.json(
+        { error: 'Select which sick leave pool (project) to use.' },
+        { status: 400 }
+      );
+    }
+    if (!pools.some((pool) => pool.projectId === balanceProjectId)) {
+      return NextResponse.json({ error: 'Invalid sick leave pool for this user.' }, { status: 400 });
+    }
+    resolvedBalanceProjectId = balanceProjectId;
   }
 
   const balanceCheck = await assertLeaveBalance(supabase, {
@@ -128,6 +136,7 @@ export async function POST(request: NextRequest) {
     type: type as LeaveType,
     workingDays: wd,
     annualAllocations: resolvedAnnualAllocations,
+    balanceProjectId: resolvedBalanceProjectId,
   });
   if (!balanceCheck.ok) {
     return NextResponse.json({ error: balanceCheck.error }, { status: balanceCheck.status });
@@ -138,6 +147,7 @@ export async function POST(request: NextRequest) {
     .insert({
       user_id: user.id,
       project_id: projectId,
+      balance_project_id: resolvedBalanceProjectId ?? null,
       type: type as LeaveType,
       start_date: startDate,
       end_date: endDate,

@@ -14,6 +14,30 @@ export type AnnualFundDefinitionOption = {
   label: string;
 };
 
+/** Default fund filter: fund valid on `anchorDate`, else first definition. */
+export function pickDefaultAnnualFundDefinitionId(
+  definitions: AnnualFundDefinitionOption[],
+  grants: OverviewGrantRow[],
+  options?: { anchorDate?: string; policy?: ProjectFirstUsePolicy }
+): string {
+  if (definitions.length === 0) return '';
+  const anchor = options?.anchorDate ?? new Date().toISOString().slice(0, 10);
+  const policy = options?.policy;
+  const picker = grants.map(toGrantPickerRow);
+
+  for (const definition of definitions) {
+    const fundGrants = picker.filter((grant) => {
+      const row = grants.find((r) => r.id === grant.id);
+      return row?.definition_id === definition.id;
+    });
+    if (grantsEligibleForStartDate(fundGrants, anchor, policy).length > 0) {
+      return definition.id;
+    }
+  }
+
+  return definitions[0].id;
+}
+
 export type OverviewGrantRow = {
   id: string;
   user_id: string;

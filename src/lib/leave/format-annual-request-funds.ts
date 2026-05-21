@@ -10,10 +10,19 @@ export type RequestAllocationRow = {
   annual_entitlement_grants?: GrantRef;
 };
 
-/** Sick / religious use a single global counter (no per-fund allocation rows like annual). */
-export function formatLeaveBalancePoolLine(leaveType: string): string | null {
-  if (leaveType === 'sick') return 'Pool: sick leave (global balance)';
-  if (leaveType === 'religious') return 'Pool: religious leave (global balance)';
+/** Sick / religious pool label from balance_project_id when present. */
+export function formatLeaveBalancePoolLine(
+  leaveType: string,
+  balanceProject?: { name?: string | null } | { name?: string | null }[] | null
+): string | null {
+  const project = Array.isArray(balanceProject) ? balanceProject[0] : balanceProject;
+  const name = project?.name?.trim();
+  if (leaveType === 'sick') {
+    return name ? `Funds: Sick leave — ${name}` : 'Funds: Sick leave pool not selected';
+  }
+  if (leaveType === 'religious') {
+    return name ? `Funds: Religious leave — ${name}` : 'Funds: Religious leave pool not selected';
+  }
   return null;
 }
 
