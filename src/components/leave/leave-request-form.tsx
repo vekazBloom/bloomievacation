@@ -173,12 +173,12 @@ export function LeaveRequestForm({
   useEffect(() => {
     if (type !== 'annual' || !preview?.annualGrants || preview.annualGrants.requiresSplit) return;
     const el = preview.annualGrants.eligible;
-    if (el.length === 1) {
-      setSelectedGrantId((prev) => (prev && el.some((x) => x.id === prev) ? prev : el[0].id));
-    } else if (el.length === 0 && !selectedGrantId) {
-      setSelectedGrantId(null);
-    }
-  }, [preview, type, selectedGrantId]);
+    setSelectedGrantId((prev) => {
+      if (prev) return prev;
+      if (el.length === 1) return el[0].id;
+      return null;
+    });
+  }, [preview?.annualGrants, type, eligibleIdsKey]);
 
   function fundOptionLabel(g: GrantRow): string {
     const bookableTo = resolveGrantBookableEnd(g, firstUsePolicy.firstUseMonth, firstUsePolicy.firstUseDay);
@@ -302,14 +302,7 @@ export function LeaveRequestForm({
           <Label htmlFor="annual-fund">Annual fund</Label>
           <select
             id="annual-fund"
-            value={
-              preview?.annualGrants &&
-              !preview.annualGrants.requiresSplit &&
-              preview.annualGrants.eligible.length === 1 &&
-              !selectedGrantId
-                ? preview.annualGrants.eligible[0].id
-                : selectedGrantId ?? ''
-            }
+            value={selectedGrantId ?? ''}
             onChange={(e) => setSelectedGrantId(e.target.value === '' ? null : e.target.value)}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
