@@ -18,34 +18,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { dateInGrantWindow } from '@/lib/leave/entitlement-grants';
 import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
+import type { MemberFundBalanceRow } from '@/lib/projects/overview-fund-stats';
 import { getInitials } from '@/lib/utils';
 import { projectPath } from '@/lib/projects/paths';
 
-function allocationMatchesGrant(line: MemberFundAllocationLine, grant: MemberFundGrant): boolean {
-  if (line.grant_id !== grant.id) return false;
-  return dateInGrantWindow(grant, line.start_date);
-}
-
-function approvedOnGrant(lines: MemberFundAllocationLine[], grant: MemberFundGrant): number {
-  let s = 0;
-  for (const line of lines) {
-    if (line.status !== 'approved') continue;
-    if (!allocationMatchesGrant(line, grant)) continue;
-    s += Number(line.working_days || 0);
+function balanceForFundSelection(
+  fundKey: string | null,
+  memberUserId: string,
+  byDefinition: Record<string, Record<string, MemberFundBalanceRow>>,
+  byGrantId: Record<string, MemberFundBalanceRow>
+): MemberFundBalanceRow | null {
+  if (!fundKey) return null;
+  if (fundKey.startsWith('grant:')) {
+    return byGrantId[fundKey.slice('grant:'.length)] ?? null;
   }
-  return s;
-}
-
-function reservedOnGrant(lines: MemberFundAllocationLine[], grant: MemberFundGrant): number {
-  let s = 0;
-  for (const line of lines) {
-    if (line.status !== 'pending' && line.status !== 'approved') continue;
-    if (!allocationMatchesGrant(line, grant)) continue;
-    s += Number(line.working_days || 0);
-  }
-  return s;
+  return byDefinition[fundKey]?.[memberUserId] ?? null;
 }
 
 const selectClassName =
@@ -142,6 +130,10 @@ export function MemberProfileCardWithTabs({
   grants,
   assignedTemplateIds,
   allocationLines,
+  attributedGrantByRequestId,
+  memberFundBalanceByDefinition,
+  memberFundBalanceByGrantId,
+  memberUserId,
   requests,
   canReview,
   canManage,
@@ -166,6 +158,10 @@ export function MemberProfileCardWithTabs({
   grants: MemberFundGrant[];
   assignedTemplateIds: string[];
   allocationLines: MemberFundAllocationLine[];
+  attributedGrantByRequestId: Record<string, string>;
+  memberFundBalanceByDefinition: Record<string, Record<string, MemberFundBalanceRow>>;
+  memberFundBalanceByGrantId: Record<string, MemberFundBalanceRow>;
+  memberUserId: string;
   requests: any[];
   canReview: boolean;
   canManage: boolean;
@@ -224,19 +220,28 @@ export function MemberProfileCardWithTabs({
     setEditDays(String(Math.round(Number(selectedGrant.days_allocated || 0))));
   }, [selectedGrant?.id, selectedGrant?.days_allocated]);
 
+  const selectedFundBalance = useMemo(
+    () =>
+      balanceForFundSelection(
+        selectedFundKey,
+        memberUserId,
+        memberFundBalanceByDefinition,
+        memberFundBalanceByGrantId
+      ),
+    [selectedFundKey, memberUserId, memberFundBalanceByDefinition, memberFundBalanceByGrantId]
+  );
+
   const annualDisplay = useMemo(() => {
-    if (selectedGrant) {
-      const used = approvedOnGrant(allocationLines, selectedGrant);
-      const total = Number(selectedGrant.days_allocated || 0);
-      return { used, total };
+    if (selectedFundBalance) {
+      return { used: selectedFundBalance.used, total: selectedFundBalance.total };
     }
     return {
       used: annualGlobalApproved,
       total: annualProjectPool,
     };
-  }, [allocationLines, annualGlobalApproved, annualProjectPool, selectedGrant]);
+  }, [selectedFundBalance, annualGlobalApproved, annualProjectPool]);
 
-  const reservedOnSelected = selectedGrant ? reservedOnGrant(allocationLines, selectedGrant) : 0;
+  const reservedOnSelected = selectedFundBalance?.reserved ?? 0;
 
   const sickDisplay = useMemo(() => {
     if (selectedGrant) {
@@ -526,6 +531,7 @@ export function MemberProfileCardWithTabs({
                 projectSlug={projectSlug}
                 grants={grants}
                 allocationLines={allocationLines}
+                attributedGrantByRequestId={attributedGrantByRequestId}
                 selectedSummaryGrantId={summaryGrantId}
                 onSelectSummaryGrant={(id) => {
                   if (!id) return;

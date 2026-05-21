@@ -7,6 +7,7 @@ import {
   pickBestGrantForStartDate,
   resolveGrantBookableEnd,
   validateAllocationTotals,
+  validateExplicitAnnualAllocations,
   type AnnualGrantRow,
 } from '../src/lib/leave/entitlement-grants';
 import { fundPeriodLabelForAnchor } from '../src/lib/leave/fund-period-label';
@@ -44,6 +45,15 @@ test('dateInGrantWindow respects inclusive bounds', () => {
 test('grantsEligibleForStartDate returns overlapping funds', () => {
   const eligible = grantsEligibleForStartDate([g2025, g2026], '2026-03-15');
   assert.equal(eligible.length, 2);
+});
+
+test('validateExplicitAnnualAllocations accepts any grant id owned by member', () => {
+  const grants = [g2025, g2026];
+  assert.equal(
+    validateExplicitAnnualAllocations(grants, [{ grantId: 'a', workingDays: 5 }]).ok,
+    true
+  );
+  assert.equal(validateExplicitAnnualAllocations(grants, [{ grantId: 'z', workingDays: 1 }]).ok, false);
 });
 
 test('resolveGrantBookableEnd extends stored valid_to to first-use-by deadline', () => {

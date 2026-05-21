@@ -6,7 +6,6 @@ import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { dateInGrantWindow } from '@/lib/leave/entitlement-grants';
 import { formatAllocatedDays } from '@/lib/leave/format-allocated-days';
 import { formatPolicyDate } from '@/lib/leave/annual-policy-dates';
 import { projectPath } from '@/lib/projects/paths';
@@ -63,12 +62,14 @@ export function MemberFundsPanel({
   projectSlug,
   grants,
   allocationLines,
+  attributedGrantByRequestId = {},
   selectedSummaryGrantId = null,
   onSelectSummaryGrant,
 }: {
   projectSlug: string;
   grants: MemberFundGrant[];
   allocationLines: MemberFundAllocationLine[];
+  attributedGrantByRequestId?: Record<string, string>;
   selectedSummaryGrantId?: string | null;
   onSelectSummaryGrant?: (id: string | null) => void;
 }) {
@@ -82,28 +83,28 @@ export function MemberFundsPanel({
   const linesByGrant = useMemo(() => {
     const m = new Map<string, MemberFundAllocationLine[]>();
     for (const line of allocationLines) {
-      const grant = grantById.get(line.grant_id);
-      if (!grant || !dateInGrantWindow(grant, line.start_date)) continue;
-      const arr = m.get(line.grant_id) || [];
+      const grantId = attributedGrantByRequestId[line.request_id] ?? line.grant_id;
+      if (!grantById.has(grantId)) continue;
+      const arr = m.get(grantId) || [];
       arr.push(line);
-      m.set(line.grant_id, arr);
+      m.set(grantId, arr);
     }
     for (const arr of m.values()) {
       arr.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
     }
     return m;
-  }, [allocationLines, grantById]);
+  }, [allocationLines, attributedGrantByRequestId, grantById]);
 
   const reservedByGrant = useMemo(() => {
     const m = new Map<string, number>();
     for (const line of allocationLines) {
       if (line.status !== 'pending' && line.status !== 'approved') continue;
-      const grant = grantById.get(line.grant_id);
-      if (!grant || !dateInGrantWindow(grant, line.start_date)) continue;
-      m.set(line.grant_id, (m.get(line.grant_id) || 0) + Number(line.working_days || 0));
+      const grantId = attributedGrantByRequestId[line.request_id] ?? line.grant_id;
+      if (!grantById.has(grantId)) continue;
+      m.set(grantId, (m.get(grantId) || 0) + Number(line.working_days || 0));
     }
     return m;
-  }, [allocationLines, grantById]);
+  }, [allocationLines, attributedGrantByRequestId, grantById]);
 
   const filteredGrants = useMemo(() => {
     const q = search.trim().toLowerCase();

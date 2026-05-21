@@ -8,11 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
-import {
-  dateInGrantBookableWindow,
-  resolveGrantBookableEnd,
-  type ProjectFirstUsePolicy,
-} from '@/lib/leave/entitlement-grants';
+import { resolveGrantBookableEnd, type ProjectFirstUsePolicy } from '@/lib/leave/entitlement-grants';
 import { fundPeriodLabelForAnchor, fundSourceShortLabel } from '@/lib/leave/fund-period-label';
 import { projectPath } from '@/lib/projects/paths';
 
@@ -80,19 +76,7 @@ export function LeaveRequestForm({
 
   const selectedGrant = selectedGrantId ? grantMeta.get(selectedGrantId) ?? null : null;
 
-  const selectedGrantBookableEnd = useMemo(() => {
-    if (!selectedGrant) return undefined;
-    return resolveGrantBookableEnd(
-      selectedGrant,
-      firstUsePolicy.firstUseMonth,
-      firstUsePolicy.firstUseDay
-    ) ?? undefined;
-  }, [selectedGrant, firstUsePolicy]);
-
-  const startDateMin = selectedGrant?.valid_from;
-  const startDateMax = selectedGrantBookableEnd;
-  const endDateMin = startDate || selectedGrant?.valid_from;
-  const endDateMax = selectedGrantBookableEnd;
+  const endDateMin = startDate || undefined;
 
   const eligibleIdsKey = useMemo(
     () =>
@@ -203,42 +187,17 @@ export function LeaveRequestForm({
     return `${g.label || 'Fund'} [${period} · ${src}]`;
   }
 
-  function isSelectedGrantValidForStart(): boolean {
-    if (!selectedGrant || !startDate) return true;
-    return dateInGrantBookableWindow(
-      selectedGrant,
-      startDate,
-      firstUsePolicy.firstUseMonth,
-      firstUsePolicy.firstUseDay
-    );
-  }
-
-  function formatBookableRange(grant: GrantRow): string {
-    const end = resolveGrantBookableEnd(grant, firstUsePolicy.firstUseMonth, firstUsePolicy.firstUseDay);
-    return `${grant.valid_from} — ${end ?? 'no end'}`;
-  }
-
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (type === 'annual' && selectedGrant && startDate && !isSelectedGrantValidForStart()) {
-      return toast.error(
-        `Start date must fall within ${selectedGrant.label} (${formatBookableRange(selectedGrant)}).`
-      );
-    }
-
-    if (type === 'annual' && selectedGrant && endDate) {
-      const bookableEnd = resolveGrantBookableEnd(
-        selectedGrant,
-        firstUsePolicy.firstUseMonth,
-        firstUsePolicy.firstUseDay
-      );
-      if (bookableEnd && endDate > bookableEnd) {
-        return toast.error(`End date must be on or before ${bookableEnd} for the selected fund.`);
-      }
-      if (endDate < selectedGrant.valid_from) {
-        return toast.error(`End date must be on or after ${selectedGrant.valid_from} for the selected fund.`);
-      }
+    if (
+      type === 'annual' &&
+      allGrants &&
+      allGrants.length > 0 &&
+      !preview?.annualGrants?.requiresSplit &&
+      !selectedGrantId
+    ) {
+      return toast.error('Select which annual fund to use.');
     }
 
     setIsSubmitting(true);
@@ -297,19 +256,12 @@ export function LeaveRequestForm({
       !preview.annualGrants.requiresSplit &&
       preview.workingDays > 0
     ) {
-      const eligible = preview.annualGrants.eligible;
-      let gid: string | null = null;
-
-      if (selectedGrantId && selectedGrant && isSelectedGrantValidForStart()) {
-        gid = selectedGrantId;
-      } else if (eligible.length === 1) {
-        gid = eligible[0].id;
-      } else if (selectedGrantId && eligible.some((e) => e.id === selectedGrantId)) {
-        gid = selectedGrantId;
-      }
-
-      if (gid) {
-        body.annualAllocations = [{ grantId: gid, workingDays: preview.workingDays }];
+      if (selectedGrantId) {
+        body.annualAllocations = [{ grantId: selectedGrantId, workingDays: preview.workingDays }];
+      } else if (preview.annualGrants.eligible.length === 1) {
+        body.annualAllocations = [
+          { grantId: preview.annualGrants.eligible[0].id, workingDays: preview.workingDays },
+        ];
       }
     }
 
@@ -369,17 +321,10 @@ export function LeaveRequestForm({
             ))}
           </select>
           <p className="text-xs text-muted-foreground">
-            <strong>Active</strong> = covers your start date; <strong>Future</strong> = fund starts after that date;{' '}
-            <strong>Past</strong> = ended before {startDate ? 'your start date' : 'today'} — you can still book
-            remaining days by choosing that fund first, then picking start and end dates inside its period
-            {selectedGrant ? ` (${formatBookableRange(selectedGrant)}).` : '.'}{' '}
-            Labels use {startDate ? 'your start date' : 'today'} until you set dates.
+            Choose the fund first, then any start and end dates. Days are taken from the fund you select, not
+            from the calendar year of the leave. Tags (<strong>Active</strong> / <strong>Past</strong>) are hints
+            only — they do not limit the date picker.
           </p>
-          {selectedGrant && startDate && !isSelectedGrantValidForStart() ? (
-            <p className="text-xs text-amber-800 dark:text-amber-200">
-              Start date is outside {selectedGrant.label}. Adjust dates or pick a different fund.
-            </p>
-          ) : null}
         </div>
       ) : null}
 
@@ -390,8 +335,6 @@ export function LeaveRequestForm({
             id="start-date"
             type="date"
             value={startDate}
-            min={startDateMin}
-            max={startDateMax}
             onChange={(e) => setStartDate(e.target.value)}
             required
           />
@@ -403,7 +346,6 @@ export function LeaveRequestForm({
             type="date"
             value={endDate}
             min={endDateMin}
-            max={endDateMax}
             onChange={(e) => setEndDate(e.target.value)}
             required
           />
@@ -446,12 +388,17 @@ export function LeaveRequestForm({
                     (see your profile).
                   </p>
                 </div>
-              ) : preview.annualGrants.eligible.length === 0 ? (
+              ) : preview.annualGrants.eligible.length === 0 && !selectedGrantId ? (
                 <div className="space-y-1 border-t border-border pt-3 text-sm text-amber-800 dark:text-amber-200">
                   <p className="font-medium">No fund covers the first day</p>
+                  <p>Select an annual fund above to book against that pool, or change the start date.</p>
+                </div>
+              ) : preview.annualGrants.eligible.length === 0 && selectedGrant ? (
+                <div className="space-y-1 border-t border-border pt-3 text-sm text-muted-foreground">
+                  <p className="font-medium">Booking from selected fund</p>
                   <p>
-                    Change the start date or ask an admin to adjust fund validity so an annual pool covers the
-                    first day of leave.
+                    <strong>{preview.workingDays}</strong> working day(s) from{' '}
+                    <strong>{selectedGrant.label}</strong>.
                   </p>
                 </div>
               ) : preview.annualGrants.requiresSplit ? (
@@ -493,8 +440,8 @@ export function LeaveRequestForm({
                 <div className="space-y-2 border-t border-border pt-3">
                   <p className="font-medium">Booking summary</p>
                   <p className="text-sm text-muted-foreground">
-                    <strong>{preview.workingDays}</strong> working day(s) will be booked from the fund you selected
-                    above (must be <strong>Active</strong> for your start date).
+                    <strong>{preview.workingDays}</strong> working day(s) from{' '}
+                    <strong>{selectedGrant?.label ?? 'the fund you selected'}</strong>.
                   </p>
                 </div>
               )}
@@ -503,14 +450,7 @@ export function LeaveRequestForm({
         </div>
       ) : null}
 
-      <Button
-        type="submit"
-        disabled={
-          isSubmitting ||
-          (type === 'annual' &&
-            Boolean(selectedGrant && startDate && !isSelectedGrantValidForStart()))
-        }
-      >
+      <Button type="submit" disabled={isSubmitting}>
         Submit request
       </Button>
     </form>

@@ -184,6 +184,20 @@ export function dateInGrantBookableWindow(
   return dateInGrantWindow({ valid_from: grant.valid_from, valid_to: validTo }, isoDate);
 }
 
+/** User picked grant(s) in the form — skip calendar-window checks on start date. */
+export function validateExplicitAnnualAllocations(
+  grants: AnnualGrantRow[],
+  allocations: AnnualAllocationInput[]
+): { ok: true } | { ok: false; error: string } {
+  const grantById = new Map(grants.map((g) => [g.id, g]));
+  for (const row of allocations) {
+    if (!grantById.has(row.grantId)) {
+      return { ok: false, error: 'Unknown entitlement grant in allocation.' };
+    }
+  }
+  return { ok: true };
+}
+
 export function accrualDateForGrantYear(
   grantYear: number,
   accrualMonth: number,

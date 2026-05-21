@@ -6,6 +6,7 @@ import {
   fetchProjectFirstUsePolicy,
   grantsEligibleForStartDate,
   replaceAnnualAllocations,
+  validateExplicitAnnualAllocations,
   type AnnualAllocationInput,
 } from '@/lib/leave/entitlement-grants';
 import { leaveRequestWithUserAvatarSelect } from '@/lib/leave/queries';
@@ -89,15 +90,24 @@ export async function POST(request: NextRequest) {
       fetchGrantsForMember(supabase, projectId, user.id),
       fetchProjectFirstUsePolicy(supabase, projectId),
     ]);
-    const eligible = grantsEligibleForStartDate(grants, startDate, policy);
-    if (eligible.length === 0 && grants.length > 0) {
-      return NextResponse.json(
-        { error: 'No annual entitlement fund is valid for the start date of this request.' },
-        { status: 400 }
-      );
-    }
-    if (eligible.length >= 2) {
-      if (!resolvedAnnualAllocations || resolvedAnnualAllocations.length === 0) {
+
+    const hasExplicitAllocations =
+      Boolean(resolvedAnnualAllocations && resolvedAnnualAllocations.length > 0);
+
+    if (hasExplicitAllocations) {
+      const explicitCheck = validateExplicitAnnualAllocations(grants, resolvedAnnualAllocations!);
+      if (!explicitCheck.ok) {
+        return NextResponse.json({ error: explicitCheck.error }, { status: 400 });
+      }
+    } else {
+      const eligible = grantsEligibleForStartDate(grants, startDate, policy);
+      if (eligible.length === 0 && grants.length > 0) {
+        return NextResponse.json(
+          { error: 'No annual entitlement fund is valid for the start date of this request.' },
+          { status: 400 }
+        );
+      }
+      if (eligible.length >= 2) {
         return NextResponse.json(
           {
             error:
@@ -106,8 +116,7 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-    } else if (eligible.length === 1) {
-      if (!resolvedAnnualAllocations || resolvedAnnualAllocations.length === 0) {
+      if (eligible.length === 1) {
         resolvedAnnualAllocations = [{ grantId: eligible[0].id, workingDays: wd }];
       }
     }

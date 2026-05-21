@@ -8,7 +8,8 @@ import { fetchApprovedUsageGloballyForUser } from '@/lib/leave/approved-usage-fr
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
-import { realignAnnualGrantAllocationsForMember } from '@/lib/leave/entitlement-grants';
+import { fetchProjectFirstUsePolicy, realignAnnualGrantAllocationsForMember } from '@/lib/leave/entitlement-grants';
+import { buildMemberAnnualBalances } from '@/lib/projects/overview-fund-stats';
 import {
   canEditMemberLeaveBalances,
   canManageProject,
@@ -68,6 +69,7 @@ export default async function ProjectMemberProfilePage({
     { data: defRows },
     { data: projectApprovedRows },
     { data: templateAssignRows },
+    { data: annualBalanceRequestRows },
   ] = await Promise.all([
     supabase
       .from('leave_requests')
@@ -97,6 +99,13 @@ export default async function ProjectMemberProfilePage({
       .from('user_annual_fund_definition_assignments')
       .select('definition_id')
       .eq('user_id', params.userId),
+    supabase
+      .from('leave_requests')
+      .select('id, user_id, status, start_date, working_days_count')
+      .eq('project_id', projectId)
+      .eq('user_id', params.userId)
+      .eq('type', 'annual')
+      .in('status', ['pending', 'approved']),
   ]);
 
   const approvedInProject = { annual: 0, sick: 0, religious: 0 };
@@ -209,6 +218,31 @@ export default async function ProjectMemberProfilePage({
     label: d.label as string,
   }));
 
+  const firstUsePolicy = await fetchProjectFirstUsePolicy(supabase, projectId);
+  const annualBalanceRequests = (annualBalanceRequestRows || []).map((row) => ({
+    id: row.id as string,
+    user_id: row.user_id as string,
+    status: row.status as string,
+    start_date: row.start_date as string,
+    working_days_count: Number(row.working_days_count ?? 0),
+  }));
+
+  const memberAnnualBalances = buildMemberAnnualBalances(
+    fundDefinitionOptions,
+    memberFundsGrants.map((g) => ({
+      id: g.id,
+      user_id: params.userId,
+      definition_id: g.definition_id,
+      days_allocated: g.days_allocated,
+      valid_from: g.valid_from,
+      valid_to: g.valid_to,
+      grant_year: g.grant_year,
+      source: g.source,
+    })),
+    annualBalanceRequests,
+    firstUsePolicy
+  );
+
   const carried = Number(
     (membership as { annual_leave_carried_over?: number | null }).annual_leave_carried_over ?? 0
   );
@@ -247,6 +281,10 @@ export default async function ProjectMemberProfilePage({
         grants={memberFundsGrants}
         assignedTemplateIds={assignedTemplateIds}
         allocationLines={memberFundAllocationLines}
+        attributedGrantByRequestId={memberAnnualBalances.attributedGrantByRequestId}
+        memberFundBalanceByDefinition={memberAnnualBalances.byDefinition}
+        memberFundBalanceByGrantId={memberAnnualBalances.byGrantId}
+        memberUserId={params.userId}
         requests={requests || []}
         canReview={canReview}
         canManage={canManage}

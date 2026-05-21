@@ -66,8 +66,8 @@ test('buildMemberAnnualBalancesByFund scopes used days to grant validity window'
   ];
 
   const balances = buildMemberAnnualBalancesByFund(definitions, grants, allocations);
-  assert.deepEqual(balances['def-2025']['user-1'], { used: 5, total: 21 });
-  assert.deepEqual(balances['def-2026']['user-1'], { used: 10, total: 21 });
+  assert.deepEqual(balances['def-2025']['user-1'], { used: 5, total: 21, reserved: 5 });
+  assert.deepEqual(balances['def-2026']['user-1'], { used: 10, total: 21, reserved: 10 });
 });
 
 test('buildMemberAnnualBalancesByFund does not attribute other members leave to one user', () => {
@@ -109,6 +109,6 @@ test('buildMemberAnnualBalancesByFund does not attribute other members leave to 
   ];
 
   const balances = buildMemberAnnualBalancesByFund(definitions, grants, allocations);
-  assert.deepEqual(balances['def-2026']['user-a'], { used: 0, total: 20 });
-  assert.deepEqual(balances['def-2026']['user-b'], { used: 12, total: 20 });
+  assert.deepEqual(balances['def-2026']['user-a'], { used: 0, total: 20, reserved: 0 });
+  assert.deepEqual(balances['def-2026']['user-b'], { used: 12, total: 20, reserved: 12 });
 });
