@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from('leave_requests')
-    .select(`${leaveRequestWithUserAvatarSelect}, projects(name)`)
+    .select(leaveRequestWithUserAvatarSelect)
     .order('created_at', { ascending: false });
 
   if (projectId) query = query.eq('project_id', projectId);
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
   const { data: requestRow, error } = await supabase
     .from('leave_requests')
     .insert(insertPayload)
-    .select('*, projects(name)')
+    .select(leaveRequestWithUserAvatarSelect)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

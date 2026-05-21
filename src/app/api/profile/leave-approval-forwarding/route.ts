@@ -54,7 +54,7 @@ export async function GET() {
     supabase
       .from('leave_requests')
       .select(
-        'id, start_date, end_date, type, working_days_count, decided_at, approval_forward_sent_at, users!leave_requests_user_id_fkey(name), projects(name)'
+        'id, start_date, end_date, type, working_days_count, decided_at, approval_forward_sent_at, users!leave_requests_user_id_fkey(name), projects!leave_requests_project_id_fkey(name)'
       )
       .eq('decided_by', user.id)
       .eq('status', 'approved')

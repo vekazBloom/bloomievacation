@@ -68,7 +68,7 @@ export async function ProjectTeamCalendarSection({ slug }: { slug: string }) {
       ? await supabase
           .from('leave_requests')
           .select(
-            `id, user_id, project_id, type, status, start_date, end_date, reason, ${leaveRequestUserEmbed}(name, avatar_url), projects(name, slug)`
+            `id, user_id, project_id, type, status, start_date, end_date, reason, ${leaveRequestUserEmbed}(name, avatar_url), projects!leave_requests_project_id_fkey(name, slug)`
           )
           .in('user_id', memberUserIds)
           .in('status', ['pending', 'approved'])

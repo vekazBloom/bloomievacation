@@ -31,7 +31,7 @@ export async function PersonalCalendarSection() {
   const [{ data: requests }, holidays] = await Promise.all([
     supabase
       .from('leave_requests')
-      .select(`id, user_id, type, status, start_date, end_date, reason, projects(name), ${leaveRequestUserEmbed}(name, avatar_url)`)
+      .select(`id, user_id, type, status, start_date, end_date, reason, projects!leave_requests_project_id_fkey(name), ${leaveRequestUserEmbed}(name, avatar_url)`)
       .eq('user_id', user.id)
       .in('status', ['pending', 'approved']),
     getNationalHolidays(),

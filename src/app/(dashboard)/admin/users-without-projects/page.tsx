@@ -40,7 +40,7 @@ export default async function UsersWithoutProjectsPage() {
       ? await supabase
           .from('leave_requests')
           .select(
-            `id, user_id, type, status, start_date, end_date, projects(name), ${leaveRequestUserEmbed}(name, avatar_url)`
+            `id, user_id, type, status, start_date, end_date, projects!leave_requests_project_id_fkey(name), ${leaveRequestUserEmbed}(name, avatar_url)`
           )
           .in('user_id', orphanUserIds)
           .in('status', ['pending', 'approved'])

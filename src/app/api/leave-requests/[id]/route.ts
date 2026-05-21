@@ -18,6 +18,7 @@ import { fetchSickLeavePoolsForUser } from '@/lib/leave/sick-leave-pools';
 import { isValidSickLeaveAttachmentPath } from '@/lib/security/attachment';
 import { createServiceClient } from '@/lib/supabase/server';
 import { sendLeaveApprovalForwardCopies } from '@/lib/leave/approval-forward-email';
+import { leaveRequestProjectEmbed } from '@/lib/leave/queries';
 
 const updateSchema = z.object({
   action: z.enum(['approve', 'reject', 'cancel', 'edit']).optional(),
@@ -49,7 +50,7 @@ export async function PATCH(
 
   const { data: existing } = await supabase
     .from('leave_requests')
-    .select('*, projects(name)')
+    .select(`*, ${leaveRequestProjectEmbed}`)
     .eq('id', params.id)
     .maybeSingle();
 
@@ -301,7 +302,7 @@ export async function PATCH(
       decision_note: null,
     })
     .eq('id', params.id)
-    .select('*, projects(name)')
+    .select(`*, ${leaveRequestProjectEmbed}`)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

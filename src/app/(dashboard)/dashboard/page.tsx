@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getUserLeaveBalance } from '@/lib/leave/global-balance';
-import { leaveRequestUserEmbed } from '@/lib/leave/queries';
+import { leaveRequestProjectEmbedWithSlug, leaveRequestUserEmbed } from '@/lib/leave/queries';
 import { formatDateRange } from '@/lib/utils';
 import { projectPath } from '@/lib/projects/paths';
 
@@ -73,7 +73,7 @@ export default async function DashboardPage() {
   const today = new Date().toISOString().split('T')[0];
   const { data: upcoming } = await supabase
     .from('leave_requests')
-    .select('id, type, status, start_date, end_date, project_id, projects(name, slug)')
+    .select(`id, type, status, start_date, end_date, project_id, ${leaveRequestProjectEmbedWithSlug}`)
     .eq('user_id', user.id)
     .gte('end_date', today)
     .in('status', ['pending', 'approved'])
@@ -89,7 +89,7 @@ export default async function DashboardPage() {
     leadProjectIds.length > 0
       ? await supabase
           .from('leave_requests')
-          .select(`id, type, start_date, end_date, working_days_count, user_id, project_id, ${leaveRequestUserEmbed}(name, avatar_url), projects(name, slug)`)
+          .select(`id, type, start_date, end_date, working_days_count, user_id, project_id, ${leaveRequestUserEmbed}(name, avatar_url), ${leaveRequestProjectEmbedWithSlug}`)
           .in('project_id', leadProjectIds)
           .eq('status', 'pending')
           .neq('user_id', user.id)
@@ -105,7 +105,7 @@ export default async function DashboardPage() {
     activeMemberships.length > 0
       ? await supabase
           .from('leave_requests')
-          .select(`id, type, start_date, end_date, ${leaveRequestUserEmbed}(name), projects(name, slug), project_id`)
+          .select(`id, type, start_date, end_date, ${leaveRequestUserEmbed}(name), ${leaveRequestProjectEmbedWithSlug}, project_id`)
           .in(
             'project_id',
             activeMemberships.map((m: any) => m.projects.id)
