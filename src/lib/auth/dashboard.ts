@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 
 type DashboardProject = {
@@ -26,17 +27,38 @@ export const getAuthenticatedUser = cache(async () => {
   return { supabase, user };
 });
 
+/** Cache tag used to invalidate the profile when the user updates their info. */
+export const USER_PROFILE_CACHE_TAG = 'user-profile';
+
+/**
+ * Fetch the user's profile row with a short cross-request cache so repeated
+ * navigations don't hit the DB every time. Invalidated on profile updates.
+ */
+const getCachedUserProfile = (userId: string) =>
+  unstable_cache(
+    async () => {
+      const supabase = createClient();
+      const { data } = await supabase.from('users').select('*').eq('id', userId).maybeSingle();
+      return data;
+    },
+    [`user-profile-${userId}`],
+    { revalidate: 60, tags: [USER_PROFILE_CACHE_TAG, `user-profile-${userId}`] }
+  )();
+
 export const getDashboardSession = cache(async () => {
   const { supabase, user } = await getAuthenticatedUser();
   if (!user) {
     return null;
   }
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
+  // Fetch profile (cross-request cached) and memberships in parallel.
+  const [profile, { data: memberships }] = await Promise.all([
+    getCachedUserProfile(user.id),
+    supabase
+      .from('project_members')
+      .select('role, projects(id, slug, name, logo_url, is_archived)')
+      .eq('user_id', user.id),
+  ]);
 
   if (!profile) {
     await supabase.from('users').upsert({
@@ -45,11 +67,6 @@ export const getDashboardSession = cache(async () => {
       name: (user.user_metadata?.name as string) || user.email!.split('@')[0],
     });
   }
-
-  const { data: memberships } = await supabase
-    .from('project_members')
-    .select('role, projects(id, slug, name, logo_url, is_archived)')
-    .eq('user_id', user.id);
 
   const projects =
     (memberships || [])

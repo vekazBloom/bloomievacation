@@ -19,23 +19,70 @@ export default async function DashboardPage() {
 
   const { supabase, user, profile } = session;
 
-  // Aggregate balance across all my projects.
-  const { data: memberships } = await supabase
-    .from('project_members')
-    .select(
+  const today = new Date().toISOString().split('T')[0];
+  const weekEnd = new Date();
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEndIso = weekEnd.toISOString().split('T')[0];
+
+  // Round 1 — three independent queries run in parallel.
+  const [{ data: memberships }, { data: globalBalance }, { data: upcoming }] = await Promise.all([
+    supabase
+      .from('project_members')
+      .select(
+        `
+        annual_leave_total, annual_leave_used, annual_leave_carried_over,
+        sick_leave_total, sick_leave_used,
+        religious_leave_total, religious_leave_used,
+        role,
+        projects(id, name, logo_url, is_archived, slug)
       `
-      annual_leave_total, annual_leave_used, annual_leave_carried_over,
-      sick_leave_total, sick_leave_used,
-      religious_leave_total, religious_leave_used,
-      role,
-      projects(id, name, logo_url, is_archived, slug)
-    `
-    )
-    .eq('user_id', user.id);
+      )
+      .eq('user_id', user.id),
+    getUserLeaveBalance(supabase, user.id),
+    supabase
+      .from('leave_requests')
+      .select(`id, type, status, start_date, end_date, project_id, ${leaveRequestProjectEmbedWithSlug}`)
+      .eq('user_id', user.id)
+      .gte('end_date', today)
+      .in('status', ['pending', 'approved'])
+      .order('start_date', { ascending: true })
+      .limit(5),
+  ]);
 
   const activeMemberships = (memberships || []).filter((m: any) => m.projects && !m.projects.is_archived);
 
-  const { data: globalBalance } = await getUserLeaveBalance(supabase, user.id);
+  // Pending approvals (if I'm a lead/admin somewhere).
+  const leadProjectIds = activeMemberships
+    .filter((m: any) => m.role === 'admin' || m.role === 'lead')
+    .map((m: any) => m.projects.id);
+
+  // Round 2 — two queries that depend on memberships, run in parallel with each other.
+  const [{ data: pendingApprovals }, { data: awayThisWeek }] = await Promise.all([
+    leadProjectIds.length > 0
+      ? supabase
+          .from('leave_requests')
+          .select(`id, type, start_date, end_date, working_days_count, user_id, project_id, ${leaveRequestUserEmbed}(name, avatar_url), ${leaveRequestProjectEmbedWithSlug}`)
+          .in('project_id', leadProjectIds)
+          .eq('status', 'pending')
+          .neq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5)
+      : Promise.resolve({ data: [] }),
+    activeMemberships.length > 0
+      ? supabase
+          .from('leave_requests')
+          .select(`id, type, start_date, end_date, ${leaveRequestUserEmbed}(name), ${leaveRequestProjectEmbedWithSlug}, project_id`)
+          .in(
+            'project_id',
+            activeMemberships.map((m: any) => m.projects.id)
+          )
+          .eq('status', 'approved')
+          .lte('start_date', weekEndIso)
+          .gte('end_date', today)
+          .order('start_date', { ascending: true })
+          .limit(8)
+      : Promise.resolve({ data: [] }),
+  ]);
 
   // Prefer globally synchronized user balances; fallback to project-sum if migration isn't applied.
   const totals = globalBalance
@@ -68,54 +115,6 @@ export default async function DashboardPage() {
           religiousUsed: 0,
         }
       );
-
-  // Upcoming requests.
-  const today = new Date().toISOString().split('T')[0];
-  const { data: upcoming } = await supabase
-    .from('leave_requests')
-    .select(`id, type, status, start_date, end_date, project_id, ${leaveRequestProjectEmbedWithSlug}`)
-    .eq('user_id', user.id)
-    .gte('end_date', today)
-    .in('status', ['pending', 'approved'])
-    .order('start_date', { ascending: true })
-    .limit(5);
-
-  // Pending approvals (if I'm a lead/admin somewhere).
-  const leadProjectIds = activeMemberships
-    .filter((m: any) => m.role === 'admin' || m.role === 'lead')
-    .map((m: any) => m.projects.id);
-
-  const { data: pendingApprovals } =
-    leadProjectIds.length > 0
-      ? await supabase
-          .from('leave_requests')
-          .select(`id, type, start_date, end_date, working_days_count, user_id, project_id, ${leaveRequestUserEmbed}(name, avatar_url), ${leaveRequestProjectEmbedWithSlug}`)
-          .in('project_id', leadProjectIds)
-          .eq('status', 'pending')
-          .neq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5)
-      : { data: [] };
-
-  const weekEnd = new Date();
-  weekEnd.setDate(weekEnd.getDate() + 7);
-  const weekEndIso = weekEnd.toISOString().split('T')[0];
-
-  const { data: awayThisWeek } =
-    activeMemberships.length > 0
-      ? await supabase
-          .from('leave_requests')
-          .select(`id, type, start_date, end_date, ${leaveRequestUserEmbed}(name), ${leaveRequestProjectEmbedWithSlug}, project_id`)
-          .in(
-            'project_id',
-            activeMemberships.map((m: any) => m.projects.id)
-          )
-          .eq('status', 'approved')
-          .lte('start_date', weekEndIso)
-          .gte('end_date', today)
-          .order('start_date', { ascending: true })
-          .limit(8)
-      : { data: [] };
 
   return (
     <div className="mx-auto max-w-6xl space-y-8 animate-fade-in">
