@@ -126,6 +126,7 @@ function buildAnnualFundOptions(
 
 export function MemberProfileCardWithTabs({
   projectSlug,
+  projectMemberId,
   memberName,
   memberEmail,
   avatarUrl,
@@ -144,10 +145,12 @@ export function MemberProfileCardWithTabs({
   requests,
   canReview,
   canManage,
+  canEditLeaveBalances,
   fundDefinitions,
   currentUserId,
 }: {
   projectSlug: string;
+  projectMemberId: string;
   memberName: string;
   memberEmail: string;
   avatarUrl: string | null;
@@ -166,6 +169,7 @@ export function MemberProfileCardWithTabs({
   requests: any[];
   canReview: boolean;
   canManage: boolean;
+  canEditLeaveBalances: boolean;
   fundDefinitions: Array<{ id: string; label: string }>;
   currentUserId: string;
 }) {
@@ -178,7 +182,15 @@ export function MemberProfileCardWithTabs({
 
   const [selectedFundKey, setSelectedFundKey] = useState<string | null>(null);
   const [editDays, setEditDays] = useState('');
+  const [editSickTotal, setEditSickTotal] = useState('');
+  const [editReligiousTotal, setEditReligiousTotal] = useState('');
   const [isSavingGrant, setIsSavingGrant] = useState(false);
+  const [isSavingAllowances, setIsSavingAllowances] = useState(false);
+
+  useEffect(() => {
+    setEditSickTotal(String(Math.round(sickProjectTotal)));
+    setEditReligiousTotal(String(Math.round(religiousProjectTotal)));
+  }, [sickProjectTotal, religiousProjectTotal]);
 
   useEffect(() => {
     if (fundOptions.length === 0) {
@@ -273,6 +285,38 @@ export function MemberProfileCardWithTabs({
     router.refresh();
   }
 
+  async function saveTeamAllowances() {
+    const sick = Number(editSickTotal);
+    const religious = Number(editReligiousTotal);
+    if (!Number.isFinite(sick) || sick < 0 || !Number.isFinite(religious) || religious < 0) {
+      toast.error('Enter valid sick and religious day totals');
+      return;
+    }
+
+    setIsSavingAllowances(true);
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(projectSlug)}/members/${encodeURIComponent(projectMemberId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sick_leave_total: Math.round(sick),
+          religious_leave_total: Math.round(religious),
+        }),
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    setIsSavingAllowances(false);
+
+    if (!response.ok) {
+      toast.error(payload.error || 'Failed to update allowances');
+      return;
+    }
+
+    toast.success('Sick and religious totals updated');
+    router.refresh();
+  }
+
   const selectedFundLabel = selectedFundOption?.label ?? null;
 
   const footnote = selectedFundLabel
@@ -317,7 +361,7 @@ export function MemberProfileCardWithTabs({
                   </select>
                 </div>
 
-                {canManage && selectedGrant ? (
+                {canEditLeaveBalances && selectedGrant ? (
                   <div className="flex flex-wrap items-end gap-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="member-grant-days" className="text-xs text-muted-foreground">
@@ -340,16 +384,16 @@ export function MemberProfileCardWithTabs({
                       onClick={() => void saveGrantAllocation()}
                     >
                       {isSavingGrant ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                      {isSavingGrant ? 'Saving…' : 'Save'}
+                      {isSavingGrant ? 'Saving…' : 'Save fund'}
                     </Button>
                   </div>
                 ) : null}
 
-                {canManage && selectedGrant ? (
+                {canEditLeaveBalances && selectedGrant ? (
                   <p className="text-xs text-muted-foreground">
                     Minimum {formatAllocatedDays(reservedOnSelected)} already booked on this fund.
                     {selectedGrant.source === 'legacy_migration'
-                      ? ' Saving also updates the annual total on Manage members.'
+                      ? ' Saving also updates the legacy annual total for this project.'
                       : null}
                   </p>
                 ) : null}
@@ -396,6 +440,57 @@ export function MemberProfileCardWithTabs({
                 </p>
               </div>
             </div>
+
+            {canEditLeaveBalances ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 space-y-3">
+                <p className="text-xs font-medium text-foreground">Edit allowances (system admin)</p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-sick-total" className="text-xs text-muted-foreground">
+                      Sick days (project)
+                    </Label>
+                    <Input
+                      id="member-sick-total"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={editSickTotal}
+                      onChange={(e) => setEditSickTotal(e.target.value)}
+                      className="max-w-[8rem]"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="member-religious-total" className="text-xs text-muted-foreground">
+                      Religious days (project)
+                    </Label>
+                    <Input
+                      id="member-religious-total"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={editReligiousTotal}
+                      onChange={(e) => setEditReligiousTotal(e.target.value)}
+                      className="max-w-[8rem]"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isSavingAllowances}
+                    onClick={() => void saveTeamAllowances()}
+                  >
+                    {isSavingAllowances ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    {isSavingAllowances ? 'Saving…' : 'Save sick & religious'}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Sick and religious apply to this project for everyone on the team. Annual days are edited per
+                  fund above.
+                </p>
+              </div>
+            ) : null}
+
             {footnote ? <p className="text-xs text-muted-foreground">{footnote}</p> : null}
           </div>
         </div>

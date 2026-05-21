@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { notifyRequestSubmitted } from '@/lib/leave/notify';
 import {
   fetchGrantsForMember,
+  fetchProjectFirstUsePolicy,
   grantsEligibleForStartDate,
   replaceAnnualAllocations,
   type AnnualAllocationInput,
@@ -84,8 +85,11 @@ export async function POST(request: NextRequest) {
     type === 'annual' ? annualAllocations : undefined;
 
   if (type === 'annual') {
-    const grants = await fetchGrantsForMember(supabase, projectId, user.id);
-    const eligible = grantsEligibleForStartDate(grants, startDate);
+    const [grants, policy] = await Promise.all([
+      fetchGrantsForMember(supabase, projectId, user.id),
+      fetchProjectFirstUsePolicy(supabase, projectId),
+    ]);
+    const eligible = grantsEligibleForStartDate(grants, startDate, policy);
     if (eligible.length === 0 && grants.length > 0) {
       return NextResponse.json(
         { error: 'No annual entitlement fund is valid for the start date of this request.' },

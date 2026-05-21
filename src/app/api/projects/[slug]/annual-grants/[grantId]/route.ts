@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sumAllocatedToGrant } from '@/lib/leave/entitlement-grants';
 import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
-import { canManageProject, getCurrentUser } from '@/lib/projects/access';
+import { canEditMemberLeaveBalances, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 import { createServiceClient } from '@/lib/supabase/server';
 
@@ -23,8 +23,13 @@ export async function PATCH(
   const { project } = await getProjectBySlug(supabase, params.slug);
   if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
 
-  const allowed = await canManageProject(project.id, user.id);
-  if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const allowed = await canEditMemberLeaveBalances(user.id);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: 'Only system administrators can edit fund allocations.' },
+      { status: 403 }
+    );
+  }
 
   const body = await request.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);

@@ -23,12 +23,14 @@ export function ManageMembersMembersCard({
   fundDefinitions,
   assignmentsByUserId,
   otherProjectsByUser,
+  canEditLeaveBalances = false,
 }: {
   projectSlug: string;
   members: ManageMembersMemberRow[];
   fundDefinitions: AnnualFundDefinitionOption[];
   assignmentsByUserId: Record<string, string[]>;
   otherProjectsByUser: Map<string, { slug: string; name: string }[]>;
+  canEditLeaveBalances?: boolean;
 }) {
   const [filter, setFilter] = useState<'all' | 'none' | string>('all');
 
@@ -79,6 +81,7 @@ export function ManageMembersMembersCard({
               otherProjects={otherProjectsByUser.get(member.users?.id) || []}
               fundDefinitions={fundDefinitions}
               assignedDefinitionIds={assignmentsByUserId[member.users.id] ?? []}
+              canEditLeaveBalances={canEditLeaveBalances}
             />
           ))
         )}

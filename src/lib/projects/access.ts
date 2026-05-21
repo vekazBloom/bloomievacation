@@ -28,6 +28,12 @@ export async function canManageProject(projectId: string, userId: string) {
   return membership?.role === 'admin';
 }
 
+/** System admin only — edit per-fund annual days and project sick/religious totals on member profiles. */
+export async function canEditMemberLeaveBalances(userId: string) {
+  const profile = await getUserProfile(userId);
+  return Boolean(profile?.is_system_admin);
+}
+
 /** Any project admin or system admin — used for global annual fund templates (shared across projects). */
 export async function canManageGlobalAnnualFundDefinitions(userId: string) {
   const profile = await getUserProfile(userId);

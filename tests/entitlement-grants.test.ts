@@ -5,6 +5,7 @@ import {
   grantRemaining,
   grantsEligibleForStartDate,
   pickBestGrantForStartDate,
+  resolveGrantBookableEnd,
   validateAllocationTotals,
   type AnnualGrantRow,
 } from '../src/lib/leave/entitlement-grants';
@@ -43,6 +44,12 @@ test('dateInGrantWindow respects inclusive bounds', () => {
 test('grantsEligibleForStartDate returns overlapping funds', () => {
   const eligible = grantsEligibleForStartDate([g2025, g2026], '2026-03-15');
   assert.equal(eligible.length, 2);
+});
+
+test('resolveGrantBookableEnd extends stored valid_to to first-use-by deadline', () => {
+  assert.equal(resolveGrantBookableEnd(g2025, 7, 1), '2026-07-01');
+  assert.equal(resolveGrantBookableEnd({ ...g2025, valid_to: '2025-12-31' }, 7, 1), '2026-07-01');
+  assert.equal(resolveGrantBookableEnd(g2025, null, null), '2026-07-01');
 });
 
 test('pickBestGrantForStartDate prefers grant_year matching start year', () => {

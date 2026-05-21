@@ -8,6 +8,7 @@ import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { canReviewLeave, getCurrentUser } from '@/lib/projects/access';
 import {
   fetchGrantsForMember,
+  fetchProjectFirstUsePolicy,
   grantsEligibleForStartDate,
   replaceAnnualAllocations,
   type AnnualAllocationInput,
@@ -168,8 +169,11 @@ export async function PATCH(
 
   let resolvedAnnualAllocations: AnnualAllocationInput[] | undefined;
   if (existing.type === 'annual') {
-    const grants = await fetchGrantsForMember(supabase, existing.project_id, existing.user_id);
-    const eligible = grantsEligibleForStartDate(grants, startDate);
+    const [grants, policy] = await Promise.all([
+      fetchGrantsForMember(supabase, existing.project_id, existing.user_id),
+      fetchProjectFirstUsePolicy(supabase, existing.project_id),
+    ]);
+    const eligible = grantsEligibleForStartDate(grants, startDate, policy);
     if (eligible.length === 0 && grants.length > 0) {
       return NextResponse.json(
         { error: 'No annual entitlement fund is valid for the start date of this request.' },

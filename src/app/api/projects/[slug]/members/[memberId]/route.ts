@@ -4,7 +4,7 @@ import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
 import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
 import { realignAnnualGrantAllocationsForMember } from '@/lib/leave/entitlement-grants';
 import { replaceUserAnnualFundAssignmentsAndSyncLegacy } from '@/lib/leave/sync-user-annual-definition-assignments';
-import { canManageProject, getCurrentUser } from '@/lib/projects/access';
+import { canEditMemberLeaveBalances, canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { ProjectRole } from '@/types/database';
@@ -30,14 +30,40 @@ export async function PATCH(
   const { project } = await getProjectBySlug(supabase, params.slug);
   if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
 
-  const allowed = await canManageProject(project.id, user.id);
-  if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
 
   const p = parsed.data;
+
+  const touchesLeaveBalances =
+    p.annual_leave_total !== undefined ||
+    p.sick_leave_total !== undefined ||
+    p.religious_leave_total !== undefined;
+
+  const touchesMembershipMeta =
+    p.role !== undefined ||
+    p.annual_fund_definition_ids !== undefined ||
+    p.annual_fund_definition_id !== undefined;
+
+  if (touchesLeaveBalances) {
+    const allowedBalances = await canEditMemberLeaveBalances(user.id);
+    if (!allowedBalances) {
+      return NextResponse.json(
+        { error: 'Only system administrators can edit leave day totals.' },
+        { status: 403 }
+      );
+    }
+  }
+
+  if (touchesMembershipMeta) {
+    const allowedManage = await canManageProject(project.id, user.id);
+    if (!allowedManage) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (!touchesLeaveBalances && !touchesMembershipMeta) {
+    return NextResponse.json({ error: 'No changes provided' }, { status: 400 });
+  }
 
   const memberUpdate: {
     role?: ProjectRole;

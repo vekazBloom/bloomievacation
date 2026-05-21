@@ -9,7 +9,11 @@ import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
 import { realignAnnualGrantAllocationsForMember } from '@/lib/leave/entitlement-grants';
-import { canManageProject, canReviewLeaveForRole } from '@/lib/projects/access';
+import {
+  canEditMemberLeaveBalances,
+  canManageProject,
+  canReviewLeaveForRole,
+} from '@/lib/projects/access';
 import { createServiceClient } from '@/lib/supabase/server';
 import { formatRoleLabel } from '@/lib/email/format';
 import { projectPath } from '@/lib/projects/paths';
@@ -43,7 +47,7 @@ export default async function ProjectMemberProfilePage({
   const { data: membership } = await supabase
     .from('project_members')
     .select(
-      'role, annual_leave_total, annual_leave_carried_over, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(id, name, email, avatar_url)'
+      'id, role, annual_leave_total, annual_leave_carried_over, annual_leave_used, sick_leave_total, sick_leave_used, religious_leave_total, religious_leave_used, users(id, name, email, avatar_url)'
     )
     .eq('project_id', projectId)
     .eq('user_id', params.userId)
@@ -199,6 +203,7 @@ export default async function ProjectMemberProfilePage({
 
   const canReview = canReviewLeaveForRole(profile.is_system_admin, viewerMembership.role);
   const canManage = await canManageProject(projectId, user.id);
+  const canEditLeaveBalances = await canEditMemberLeaveBalances(user.id);
   const fundDefinitionOptions = (defRows || []).map((d) => ({
     id: d.id as string,
     label: d.label as string,
@@ -226,6 +231,7 @@ export default async function ProjectMemberProfilePage({
 
       <MemberProfileCardWithTabs
         projectSlug={project.slug}
+        projectMemberId={membership.id as string}
         memberName={memberUser.name}
         memberEmail={memberUser.email}
         avatarUrl={memberUser.avatar_url ?? null}
@@ -244,6 +250,7 @@ export default async function ProjectMemberProfilePage({
         requests={requests || []}
         canReview={canReview}
         canManage={canManage}
+        canEditLeaveBalances={canEditLeaveBalances}
         fundDefinitions={fundDefinitionOptions}
         currentUserId={user.id}
       />

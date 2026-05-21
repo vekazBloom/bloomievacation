@@ -12,7 +12,7 @@ import {
   closePendingInvitationsForEmail,
   reconcileAcceptedInvitationMemberships,
 } from '@/lib/invitations/status';
-import { canManageProject, getCurrentUser } from '@/lib/projects/access';
+import { canEditMemberLeaveBalances, canManageProject, getCurrentUser } from '@/lib/projects/access';
 import { projectPath } from '@/lib/projects/paths';
 import { getProjectBySlug } from '@/lib/projects/resolve';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -28,6 +28,8 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
 
   const allowed = await canManageProject(projectId, user.id);
   if (!allowed) notFound();
+
+  const canEditLeaveBalances = await canEditMemberLeaveBalances(user.id);
 
   const service = createServiceClient();
   await reconcileAcceptedInvitationMemberships(service, projectId);
@@ -192,6 +194,7 @@ export default async function ProjectMembersPage({ params }: { params: { slug: s
         fundDefinitions={fundDefinitions}
         assignmentsByUserId={assignmentsByUserId}
         otherProjectsByUser={otherProjectsByUser}
+        canEditLeaveBalances={canEditLeaveBalances}
       />
 
       <PendingInvitationsTable

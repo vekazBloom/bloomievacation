@@ -20,9 +20,39 @@ export function dateInGrantWindow(grant: Pick<AnnualGrantRow, 'valid_from' | 'va
   return true;
 }
 
+export type ProjectFirstUsePolicy = {
+  firstUseMonth: number | null;
+  firstUseDay: number | null;
+};
+
+export async function fetchProjectFirstUsePolicy(
+  supabase: AppSupabase,
+  projectId: string
+): Promise<ProjectFirstUsePolicy> {
+  const { data } = await supabase
+    .from('projects')
+    .select('annual_first_use_by_month, annual_first_use_by_day')
+    .eq('id', projectId)
+    .maybeSingle();
+
+  return {
+    firstUseMonth: (data?.annual_first_use_by_month as number | null) ?? null,
+    firstUseDay: (data?.annual_first_use_by_day as number | null) ?? null,
+  };
+}
+
 /** Grants that cover the first day of leave (employee/admin pick among these when multiple). */
-export function grantsEligibleForStartDate(grants: AnnualGrantRow[], startDate: string) {
-  return grants.filter((g) => dateInGrantWindow(g, startDate));
+export function grantsEligibleForStartDate(
+  grants: AnnualGrantRow[],
+  startDate: string,
+  policy?: ProjectFirstUsePolicy
+) {
+  return grants.filter((g) => {
+    if (policy?.firstUseMonth != null && policy?.firstUseDay != null) {
+      return dateInGrantBookableWindow(g, startDate, policy.firstUseMonth, policy.firstUseDay);
+    }
+    return dateInGrantWindow(g, startDate);
+  });
 }
 
 /** When several funds cover the same start date, pick the most specific grant row. */
@@ -73,6 +103,7 @@ export async function realignAnnualGrantAllocationsForMember(
 
   if (reqErr) return { error: reqErr.message, updated: 0 };
 
+  const policy = await fetchProjectFirstUsePolicy(supabase, projectId);
   let updated = 0;
 
   for (const lr of requests || []) {
@@ -80,7 +111,7 @@ export async function realignAnnualGrantAllocationsForMember(
     const workingDays = Number(lr.working_days_count ?? 0);
     if (!startDate || !Number.isFinite(workingDays) || workingDays <= 0) continue;
 
-    const eligible = grantsEligibleForStartDate(grants, startDate);
+    const eligible = grantsEligibleForStartDate(grants, startDate, policy);
     if (eligible.length === 0) continue;
 
     const target = pickBestGrantForStartDate(eligible, startDate);
@@ -125,6 +156,32 @@ export function firstUseByDateForGrantYear(
   if (!month || !day) return null;
   const y = grantYear + 1;
   return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Last calendar day leave can start/end for this grant (policy extends past stored valid_to). */
+export function resolveGrantBookableEnd(
+  grant: Pick<AnnualGrantRow, 'grant_year' | 'valid_to'>,
+  firstUseMonth: number | null | undefined,
+  firstUseDay: number | null | undefined
+): string | null {
+  const policyEnd =
+    grant.grant_year != null
+      ? firstUseByDateForGrantYear(grant.grant_year, firstUseMonth, firstUseDay)
+      : null;
+  const stored = grant.valid_to;
+  if (!policyEnd) return stored;
+  if (!stored) return policyEnd;
+  return stored >= policyEnd ? stored : policyEnd;
+}
+
+export function dateInGrantBookableWindow(
+  grant: Pick<AnnualGrantRow, 'valid_from' | 'grant_year' | 'valid_to'>,
+  isoDate: string,
+  firstUseMonth: number | null | undefined,
+  firstUseDay: number | null | undefined
+): boolean {
+  const validTo = resolveGrantBookableEnd(grant, firstUseMonth, firstUseDay);
+  return dateInGrantWindow({ valid_from: grant.valid_from, valid_to: validTo }, isoDate);
 }
 
 export function accrualDateForGrantYear(
@@ -258,8 +315,11 @@ export async function fetchAnnualGrantSplitHints(
   >;
   requiresSplit: boolean;
 }> {
-  const grants = await fetchGrantsForMember(supabase, projectId, userId);
-  const eligible = grantsEligibleForStartDate(grants, startDate);
+  const [grants, policy] = await Promise.all([
+    fetchGrantsForMember(supabase, projectId, userId),
+    fetchProjectFirstUsePolicy(supabase, projectId),
+  ]);
+  const eligible = grantsEligibleForStartDate(grants, startDate, policy);
   const eligibleSummaries: Array<
     Pick<AnnualGrantRow, 'id' | 'label' | 'grant_year' | 'valid_from' | 'valid_to'> & { remaining: number }
   > = [];
@@ -271,7 +331,7 @@ export async function fetchAnnualGrantSplitHints(
       label: g.label,
       grant_year: g.grant_year,
       valid_from: g.valid_from,
-      valid_to: g.valid_to,
+      valid_to: resolveGrantBookableEnd(g, policy.firstUseMonth, policy.firstUseDay),
       remaining: grantRemaining(g, consumed),
     });
   }

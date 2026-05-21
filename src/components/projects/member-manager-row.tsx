@@ -32,6 +32,7 @@ export function MemberManagerRow({
   otherProjects = [],
   fundDefinitions = [],
   assignedDefinitionIds = [],
+  canEditLeaveBalances = false,
 }: {
   projectSlug: string;
   member: MemberRow;
@@ -39,6 +40,7 @@ export function MemberManagerRow({
   fundDefinitions?: AnnualFundDefinitionOption[];
   /** Global fund templates this user is assigned to (all projects). */
   assignedDefinitionIds?: string[];
+  canEditLeaveBalances?: boolean;
 }) {
   const router = useRouter();
   const [role, setRole] = useState(member.role);
@@ -64,22 +66,26 @@ export function MemberManagerRow({
 
   async function saveChanges() {
     setIsSaving(true);
+    const body: Record<string, unknown> = {
+      role,
+      annual_fund_definition_ids: Array.from(selectedDefIds),
+    };
+    if (canEditLeaveBalances) {
+      body.annual_leave_total = Number(annualTotal);
+      body.sick_leave_total = Number(sickTotal);
+      body.religious_leave_total = Number(religiousTotal);
+    }
+
     const response = await fetch(`/api/projects/${encodeURIComponent(projectSlug)}/members/${member.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role,
-        annual_leave_total: Number(annualTotal),
-        sick_leave_total: Number(sickTotal),
-        religious_leave_total: Number(religiousTotal),
-        annual_fund_definition_ids: Array.from(selectedDefIds),
-      }),
+      body: JSON.stringify(body),
     });
-    const payload = await response.json().catch(() => ({}));
+    const result = await response.json().catch(() => ({}));
     setIsSaving(false);
 
     if (!response.ok) {
-      toast.error(payload.error || 'Failed to update member');
+      toast.error((result as { error?: string }).error || 'Failed to update member');
       return;
     }
 
@@ -183,17 +189,29 @@ export function MemberManagerRow({
 
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">Annual total</label>
-        <Input value={annualTotal} onChange={(event) => setAnnualTotal(event.target.value)} />
+        {canEditLeaveBalances ? (
+          <Input value={annualTotal} onChange={(event) => setAnnualTotal(event.target.value)} />
+        ) : (
+          <p className="flex h-9 items-center font-mono text-sm tabular-nums">{annualTotal}</p>
+        )}
       </div>
 
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">Sick total</label>
-        <Input value={sickTotal} onChange={(event) => setSickTotal(event.target.value)} />
+        {canEditLeaveBalances ? (
+          <Input value={sickTotal} onChange={(event) => setSickTotal(event.target.value)} />
+        ) : (
+          <p className="flex h-9 items-center font-mono text-sm tabular-nums">{sickTotal}</p>
+        )}
       </div>
 
       <div className="space-y-1">
         <label className="text-xs text-muted-foreground">Religious total</label>
-        <Input value={religiousTotal} onChange={(event) => setReligiousTotal(event.target.value)} />
+        {canEditLeaveBalances ? (
+          <Input value={religiousTotal} onChange={(event) => setReligiousTotal(event.target.value)} />
+        ) : (
+          <p className="flex h-9 items-center font-mono text-sm tabular-nums">{religiousTotal}</p>
+        )}
       </div>
 
       <div className="flex items-center gap-2">

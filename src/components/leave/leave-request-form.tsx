@@ -8,7 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from '@/lib/supabase/client';
-import { dateInGrantWindow } from '@/lib/leave/entitlement-grants';
+import {
+  dateInGrantBookableWindow,
+  resolveGrantBookableEnd,
+  type ProjectFirstUsePolicy,
+} from '@/lib/leave/entitlement-grants';
 import { fundPeriodLabelForAnchor, fundSourceShortLabel } from '@/lib/leave/fund-period-label';
 import { projectPath } from '@/lib/projects/paths';
 
@@ -65,6 +69,10 @@ export function LeaveRequestForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [allGrants, setAllGrants] = useState<GrantRow[] | null>(null);
   const [selectedGrantId, setSelectedGrantId] = useState<string | null>(null);
+  const [firstUsePolicy, setFirstUsePolicy] = useState<ProjectFirstUsePolicy>({
+    firstUseMonth: null,
+    firstUseDay: null,
+  });
 
   const anchorDate = startDate || todayIso();
 
@@ -72,10 +80,19 @@ export function LeaveRequestForm({
 
   const selectedGrant = selectedGrantId ? grantMeta.get(selectedGrantId) ?? null : null;
 
+  const selectedGrantBookableEnd = useMemo(() => {
+    if (!selectedGrant) return undefined;
+    return resolveGrantBookableEnd(
+      selectedGrant,
+      firstUsePolicy.firstUseMonth,
+      firstUsePolicy.firstUseDay
+    ) ?? undefined;
+  }, [selectedGrant, firstUsePolicy]);
+
   const startDateMin = selectedGrant?.valid_from;
-  const startDateMax = selectedGrant?.valid_to ?? undefined;
+  const startDateMax = selectedGrantBookableEnd;
   const endDateMin = startDate || selectedGrant?.valid_from;
-  const endDateMax = selectedGrant?.valid_to ?? undefined;
+  const endDateMax = selectedGrantBookableEnd;
 
   const eligibleIdsKey = useMemo(
     () =>
@@ -93,18 +110,31 @@ export function LeaveRequestForm({
         data: { user },
       } = await supabase.auth.getUser();
       if (!user || cancelled) return;
-      const { data, error } = await supabase
-        .from('annual_entitlement_grants')
-        .select('id, label, grant_year, valid_from, valid_to, source, days_allocated')
-        .eq('project_id', projectId)
-        .eq('user_id', user.id)
-        .order('valid_from', { ascending: true });
+
+      const [{ data: grantData, error }, { data: projectData }] = await Promise.all([
+        supabase
+          .from('annual_entitlement_grants')
+          .select('id, label, grant_year, valid_from, valid_to, source, days_allocated')
+          .eq('project_id', projectId)
+          .eq('user_id', user.id)
+          .order('valid_from', { ascending: true }),
+        supabase
+          .from('projects')
+          .select('annual_first_use_by_month, annual_first_use_by_day')
+          .eq('id', projectId)
+          .maybeSingle(),
+      ]);
+
       if (cancelled) return;
       if (error) {
         setAllGrants([]);
         return;
       }
-      setAllGrants((data || []) as GrantRow[]);
+      setAllGrants((grantData || []) as GrantRow[]);
+      setFirstUsePolicy({
+        firstUseMonth: (projectData?.annual_first_use_by_month as number | null) ?? null,
+        firstUseDay: (projectData?.annual_first_use_by_day as number | null) ?? null,
+      });
     }
     void loadGrants();
     return () => {
@@ -167,28 +197,44 @@ export function LeaveRequestForm({
   }, [preview, type, selectedGrantId]);
 
   function fundOptionLabel(g: GrantRow): string {
-    const period = fundPeriodLabelForAnchor(anchorDate, g.valid_from, g.valid_to);
+    const bookableTo = resolveGrantBookableEnd(g, firstUsePolicy.firstUseMonth, firstUsePolicy.firstUseDay);
+    const period = fundPeriodLabelForAnchor(anchorDate, g.valid_from, bookableTo);
     const src = fundSourceShortLabel(g.source);
     return `${g.label || 'Fund'} [${period} · ${src}]`;
   }
 
   function isSelectedGrantValidForStart(): boolean {
     if (!selectedGrant || !startDate) return true;
-    return dateInGrantWindow(selectedGrant, startDate);
+    return dateInGrantBookableWindow(
+      selectedGrant,
+      startDate,
+      firstUsePolicy.firstUseMonth,
+      firstUsePolicy.firstUseDay
+    );
+  }
+
+  function formatBookableRange(grant: GrantRow): string {
+    const end = resolveGrantBookableEnd(grant, firstUsePolicy.firstUseMonth, firstUsePolicy.firstUseDay);
+    return `${grant.valid_from} — ${end ?? 'no end'}`;
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (type === 'annual' && selectedGrant && startDate && !dateInGrantWindow(selectedGrant, startDate)) {
+    if (type === 'annual' && selectedGrant && startDate && !isSelectedGrantValidForStart()) {
       return toast.error(
-        `Start date must fall within ${selectedGrant.label} (${selectedGrant.valid_from} — ${selectedGrant.valid_to ?? 'no end'}).`
+        `Start date must fall within ${selectedGrant.label} (${formatBookableRange(selectedGrant)}).`
       );
     }
 
     if (type === 'annual' && selectedGrant && endDate) {
-      if (selectedGrant.valid_to && endDate > selectedGrant.valid_to) {
-        return toast.error(`End date must be on or before ${selectedGrant.valid_to} for the selected fund.`);
+      const bookableEnd = resolveGrantBookableEnd(
+        selectedGrant,
+        firstUsePolicy.firstUseMonth,
+        firstUsePolicy.firstUseDay
+      );
+      if (bookableEnd && endDate > bookableEnd) {
+        return toast.error(`End date must be on or before ${bookableEnd} for the selected fund.`);
       }
       if (endDate < selectedGrant.valid_from) {
         return toast.error(`End date must be on or after ${selectedGrant.valid_from} for the selected fund.`);
@@ -254,7 +300,7 @@ export function LeaveRequestForm({
       const eligible = preview.annualGrants.eligible;
       let gid: string | null = null;
 
-      if (selectedGrantId && selectedGrant && dateInGrantWindow(selectedGrant, startDate)) {
+      if (selectedGrantId && selectedGrant && isSelectedGrantValidForStart()) {
         gid = selectedGrantId;
       } else if (eligible.length === 1) {
         gid = eligible[0].id;
@@ -326,9 +372,7 @@ export function LeaveRequestForm({
             <strong>Active</strong> = covers your start date; <strong>Future</strong> = fund starts after that date;{' '}
             <strong>Past</strong> = ended before {startDate ? 'your start date' : 'today'} — you can still book
             remaining days by choosing that fund first, then picking start and end dates inside its period
-            {selectedGrant
-              ? ` (${selectedGrant.valid_from} — ${selectedGrant.valid_to ?? 'no end'}).`
-              : '.'}{' '}
+            {selectedGrant ? ` (${formatBookableRange(selectedGrant)}).` : '.'}{' '}
             Labels use {startDate ? 'your start date' : 'today'} until you set dates.
           </p>
           {selectedGrant && startDate && !isSelectedGrantValidForStart() ? (
