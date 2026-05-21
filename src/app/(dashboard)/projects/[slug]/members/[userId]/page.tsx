@@ -168,12 +168,23 @@ export default async function ProjectMemberProfilePage({
 
   const grantIds = memberFundsGrants.map((g) => g.id);
   let memberFundAllocationLines: MemberFundAllocationLine[] = [];
+  let storedAllocations: Array<{
+    leave_request_id: string;
+    grant_id: string;
+    working_days: number;
+  }> = [];
 
   if (grantIds.length > 0) {
     const { data: allocRows } = await supabase
       .from('leave_request_grant_allocations')
       .select('grant_id, working_days, leave_request_id')
       .in('grant_id', grantIds);
+
+    storedAllocations = (allocRows || []).map((a) => ({
+      leave_request_id: a.leave_request_id as string,
+      grant_id: a.grant_id as string,
+      working_days: Number(a.working_days ?? 0),
+    }));
 
     const reqIds = [...new Set((allocRows || []).map((a) => a.leave_request_id as string).filter(Boolean))];
     if (reqIds.length > 0) {
@@ -235,7 +246,8 @@ export default async function ProjectMemberProfilePage({
       source: g.source,
     })),
     annualBalanceRequests,
-    firstUsePolicy
+    firstUsePolicy,
+    storedAllocations
   );
 
   const carried = Number(

@@ -50,6 +50,13 @@ export type AnnualBalanceRequestRow = {
   working_days_count: number;
 };
 
+/** Rows from leave_request_grant_allocations — authoritative when present. */
+export type StoredRequestAllocation = {
+  leave_request_id: string;
+  grant_id: string;
+  working_days: number;
+};
+
 export type MemberAnnualBalancesResult = {
   byDefinition: Record<string, Record<string, MemberFundBalanceRow>>;
   byGrantId: Record<string, MemberFundBalanceRow>;
@@ -229,12 +236,32 @@ function attributeGrantForRequest(
   return grantsById.get(targetGrant.id) ?? null;
 }
 
-/** Per-member annual used/total/reserved per fund (matches approved leave_requests, not raw allocation rows). */
+function addConsumedToBalances(
+  targetOverview: OverviewGrantRow,
+  userId: string,
+  days: number,
+  status: string,
+  byDefinition: Record<string, Record<string, MemberFundBalanceRow>>,
+  byGrantId: Record<string, MemberFundBalanceRow>
+) {
+  if (targetOverview.definition_id) {
+    const byUser = byDefinition[targetOverview.definition_id] || {};
+    const current = byUser[userId] || emptyBalance();
+    byUser[userId] = addDaysToBalance(current, days, status);
+    byDefinition[targetOverview.definition_id] = byUser;
+  } else {
+    const current = byGrantId[targetOverview.id] || emptyBalance();
+    byGrantId[targetOverview.id] = addDaysToBalance(current, days, status);
+  }
+}
+
+/** Per-member annual used/total/reserved per fund (stored allocations win; else start-date attribution). */
 export function buildMemberAnnualBalances(
   definitions: AnnualFundDefinitionOption[],
   grants: OverviewGrantRow[],
   requests: AnnualBalanceRequestRow[],
-  policy?: ProjectFirstUsePolicy
+  policy?: ProjectFirstUsePolicy,
+  storedAllocations: StoredRequestAllocation[] = []
 ): MemberAnnualBalancesResult {
   const grantsById = new Map(grants.map((grant) => [grant.id, grant]));
   const pickerGrants = grants.map(toGrantPickerRow);
@@ -261,11 +288,41 @@ export function buildMemberAnnualBalances(
     }
   }
 
+  const storedByRequestId = new Map<string, StoredRequestAllocation[]>();
+  for (const row of storedAllocations) {
+    if (!row.leave_request_id || !row.grant_id) continue;
+    const days = Number(row.working_days ?? 0);
+    if (!Number.isFinite(days) || days <= 0) continue;
+    const list = storedByRequestId.get(row.leave_request_id) || [];
+    list.push({ ...row, working_days: days });
+    storedByRequestId.set(row.leave_request_id, list);
+  }
+
   const countedRequestIds = new Set<string>();
 
   for (const request of requests) {
     if (!request.id || countedRequestIds.has(request.id)) continue;
     countedRequestIds.add(request.id);
+
+    const stored = storedByRequestId.get(request.id);
+    if (stored && stored.length > 0) {
+      if (stored.length === 1) {
+        attributedGrantByRequestId[request.id] = stored[0].grant_id;
+      }
+      for (const row of stored) {
+        const targetOverview = grantsById.get(row.grant_id);
+        if (!targetOverview) continue;
+        addConsumedToBalances(
+          targetOverview,
+          request.user_id,
+          row.working_days,
+          request.status,
+          byDefinition,
+          byGrantId
+        );
+      }
+      continue;
+    }
 
     const days = Number(request.working_days_count ?? 0);
     if (!Number.isFinite(days) || days <= 0) continue;
@@ -280,16 +337,14 @@ export function buildMemberAnnualBalances(
     if (!targetOverview) continue;
 
     attributedGrantByRequestId[request.id] = targetOverview.id;
-
-    if (targetOverview.definition_id) {
-      const byUser = byDefinition[targetOverview.definition_id] || {};
-      const current = byUser[request.user_id] || emptyBalance();
-      byUser[request.user_id] = addDaysToBalance(current, days, request.status);
-      byDefinition[targetOverview.definition_id] = byUser;
-    } else {
-      const current = byGrantId[targetOverview.id] || emptyBalance();
-      byGrantId[targetOverview.id] = addDaysToBalance(current, days, request.status);
-    }
+    addConsumedToBalances(
+      targetOverview,
+      request.user_id,
+      days,
+      request.status,
+      byDefinition,
+      byGrantId
+    );
   }
 
   return { byDefinition, byGrantId, attributedGrantByRequestId };
@@ -303,11 +358,19 @@ export function buildMemberAnnualBalancesByFund(
   policy?: ProjectFirstUsePolicy
 ): Record<string, Record<string, MemberFundBalanceRow>> {
   const requests: AnnualBalanceRequestRow[] = [];
+  const stored: StoredRequestAllocation[] = [];
   const seen = new Set<string>();
 
   for (const allocation of allocations) {
     const leaveRequest = normalizeLeaveRequest(allocation.leave_requests);
     if (!leaveRequest || leaveRequest.type !== 'annual') continue;
+
+    stored.push({
+      leave_request_id: allocation.leave_request_id,
+      grant_id: allocation.grant_id,
+      working_days: Number(allocation.working_days || 0),
+    });
+
     if (seen.has(allocation.leave_request_id)) continue;
     seen.add(allocation.leave_request_id);
     requests.push({
@@ -319,7 +382,7 @@ export function buildMemberAnnualBalancesByFund(
     });
   }
 
-  return buildMemberAnnualBalances(definitions, grants, requests, policy).byDefinition;
+  return buildMemberAnnualBalances(definitions, grants, requests, policy, stored).byDefinition;
 }
 
 export async function loadProjectAnnualBalanceInputs(
@@ -330,6 +393,7 @@ export async function loadProjectAnnualBalanceInputs(
   grants: OverviewGrantRow[];
   requests: AnnualBalanceRequestRow[];
   policy: ProjectFirstUsePolicy;
+  storedAllocations: StoredRequestAllocation[];
 }> {
   const [{ data: fundDefinitions }, { data: grants }, { data: requests }, policy] = await Promise.all([
     supabase
@@ -350,19 +414,42 @@ export async function loadProjectAnnualBalanceInputs(
     fetchProjectFirstUsePolicy(supabase, projectId),
   ]);
 
+  const grantRows = (grants || []) as OverviewGrantRow[];
+  const requestRows = (requests || []).map((row) => ({
+    id: row.id as string,
+    user_id: row.user_id as string,
+    status: row.status as string,
+    start_date: row.start_date as string,
+    working_days_count: Number(row.working_days_count ?? 0),
+  }));
+  const requestIds = new Set(requestRows.map((row) => row.id));
+  const grantIds = grantRows.map((grant) => grant.id).filter(Boolean);
+
+  let storedAllocations: StoredRequestAllocation[] = [];
+  if (grantIds.length > 0 && requestIds.size > 0) {
+    const { data: allocRows } = await supabase
+      .from('leave_request_grant_allocations')
+      .select('leave_request_id, grant_id, working_days')
+      .in('grant_id', grantIds);
+
+    storedAllocations = (allocRows || [])
+      .filter((row) => requestIds.has(row.leave_request_id as string))
+      .map((row) => ({
+        leave_request_id: row.leave_request_id as string,
+        grant_id: row.grant_id as string,
+        working_days: Number(row.working_days ?? 0),
+      }))
+      .filter((row) => row.working_days > 0);
+  }
+
   return {
     definitions: (fundDefinitions || []).map((row) => ({
       id: row.id as string,
       label: row.label as string,
     })),
-    grants: (grants || []) as OverviewGrantRow[],
-    requests: (requests || []).map((row) => ({
-      id: row.id as string,
-      user_id: row.user_id as string,
-      status: row.status as string,
-      start_date: row.start_date as string,
-      working_days_count: Number(row.working_days_count ?? 0),
-    })),
+    grants: grantRows,
+    requests: requestRows,
     policy,
+    storedAllocations,
   };
 }

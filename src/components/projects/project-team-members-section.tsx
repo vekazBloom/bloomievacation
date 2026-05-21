@@ -42,7 +42,8 @@ export async function ProjectTeamMembersSection({
     balanceInputs.definitions,
     balanceInputs.grants,
     balanceInputs.requests,
-    balanceInputs.policy
+    balanceInputs.policy,
+    balanceInputs.storedAllocations
   ).byDefinition;
 
   const memberRows: ProjectTeamMemberRow[] = (members || []).map((member) => {
