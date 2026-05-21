@@ -142,20 +142,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: balanceCheck.error }, { status: balanceCheck.status });
   }
 
+  const insertPayload: Record<string, unknown> = {
+    user_id: user.id,
+    project_id: projectId,
+    type: type as LeaveType,
+    start_date: startDate,
+    end_date: endDate,
+    working_days_count: wd,
+    status: 'pending',
+    reason: reason ?? null,
+    attachment_url: attachmentUrl ?? null,
+  };
+  if (resolvedBalanceProjectId) {
+    insertPayload.balance_project_id = resolvedBalanceProjectId;
+  }
+
   const { data: requestRow, error } = await supabase
     .from('leave_requests')
-    .insert({
-      user_id: user.id,
-      project_id: projectId,
-      balance_project_id: resolvedBalanceProjectId ?? null,
-      type: type as LeaveType,
-      start_date: startDate,
-      end_date: endDate,
-      working_days_count: wd,
-      status: 'pending',
-      reason: reason ?? null,
-      attachment_url: attachmentUrl ?? null,
-    })
+    .insert(insertPayload)
     .select('*, projects(name)')
     .single();
 
