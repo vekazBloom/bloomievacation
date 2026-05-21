@@ -9,6 +9,11 @@ import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
 import { fetchProjectFirstUsePolicy } from '@/lib/leave/entitlement-grants';
+import {
+  mergeGrantsPerUserByDefinition,
+  pickGrantIdForProject,
+  type UserGrantRow,
+} from '@/lib/leave/user-annual-funds-shared';
 import { buildMemberAnnualBalances } from '@/lib/projects/overview-fund-stats';
 import {
   canEditMemberLeaveBalances,
@@ -80,8 +85,7 @@ export default async function ProjectMemberProfilePage({
     fetchApprovedUsageGloballyForUser(supabase, params.userId),
     supabase
       .from('annual_entitlement_grants')
-      .select('id, label, grant_year, days_allocated, valid_from, valid_to, source, definition_id')
-      .eq('project_id', projectId)
+      .select('id, label, grant_year, days_allocated, valid_from, valid_to, source, definition_id, project_id')
       .eq('user_id', params.userId)
       .order('valid_from', { ascending: true }),
     supabase
@@ -102,7 +106,6 @@ export default async function ProjectMemberProfilePage({
     supabase
       .from('leave_requests')
       .select('id, user_id, status, start_date, working_days_count')
-      .eq('project_id', projectId)
       .eq('user_id', params.userId)
       .eq('type', 'annual')
       .in('status', ['pending', 'approved']),
@@ -139,8 +142,7 @@ export default async function ProjectMemberProfilePage({
     } else {
       const { data: refreshedGrants } = await supabase
         .from('annual_entitlement_grants')
-        .select('id, label, grant_year, days_allocated, valid_from, valid_to, source, definition_id')
-        .eq('project_id', projectId)
+        .select('id, label, grant_year, days_allocated, valid_from, valid_to, source, definition_id, project_id')
         .eq('user_id', params.userId)
         .order('valid_from', { ascending: true });
       if (refreshedGrants) {
@@ -151,15 +153,38 @@ export default async function ProjectMemberProfilePage({
 
   const defLabelMap = new Map((defRows || []).map((d) => [d.id as string, d.label as string]));
 
-  const memberFundsGrants: MemberFundGrant[] = grantsData.map((row) => {
-    const defId = (row.definition_id as string | null) ?? null;
+  const allUserGrants: UserGrantRow[] = grantsData.map((row) => ({
+    id: row.id as string,
+    user_id: params.userId,
+    definition_id: (row.definition_id as string | null) ?? null,
+    days_allocated: Number(row.days_allocated ?? 0),
+    valid_from: row.valid_from as string,
+    valid_to: (row.valid_to as string | null) ?? null,
+    grant_year: (row.grant_year as number | null) ?? null,
+    source: row.source as string,
+    project_id: row.project_id as string,
+    label: row.label as string,
+  }));
+
+  const mergedGrants = mergeGrantsPerUserByDefinition(allUserGrants, projectId);
+
+  const memberFundsGrants: MemberFundGrant[] = mergedGrants.map((row) => {
+    const defId = row.definition_id ?? null;
+    const displayId = pickGrantIdForProject(
+      allUserGrants,
+      params.userId,
+      defId,
+      row.id,
+      projectId
+    );
+    const meta = allUserGrants.find((g) => g.id === displayId);
     return {
-      id: row.id as string,
-      label: (row.label as string) || 'Fund',
-      grant_year: (row.grant_year as number | null) ?? null,
-      valid_from: row.valid_from as string,
-      valid_to: (row.valid_to as string | null) ?? null,
-      source: row.source as string,
+      id: displayId,
+      label: (meta?.label as string) || (defId ? defLabelMap.get(defId) : null) || 'Fund',
+      grant_year: meta?.grant_year ?? row.grant_year ?? null,
+      valid_from: meta?.valid_from ?? row.valid_from,
+      valid_to: meta?.valid_to ?? row.valid_to ?? null,
+      source: (meta?.source as string) || row.source || 'grant',
       days_allocated: Number(row.days_allocated ?? 0),
       definition_id: defId,
       definition_label: defId ? defLabelMap.get(defId) ?? null : null,
@@ -192,7 +217,6 @@ export default async function ProjectMemberProfilePage({
         .from('leave_requests')
         .select('id, status, start_date, end_date, created_at, user_id, project_id, type')
         .in('id', reqIds)
-        .eq('project_id', projectId)
         .eq('user_id', params.userId)
         .eq('type', 'annual');
 
@@ -235,19 +259,11 @@ export default async function ProjectMemberProfilePage({
 
   const memberAnnualBalances = buildMemberAnnualBalances(
     fundDefinitionOptions,
-    memberFundsGrants.map((g) => ({
-      id: g.id,
-      user_id: params.userId,
-      definition_id: g.definition_id,
-      days_allocated: g.days_allocated,
-      valid_from: g.valid_from,
-      valid_to: g.valid_to,
-      grant_year: g.grant_year,
-      source: g.source,
-    })),
+    allUserGrants,
     annualBalanceRequests,
     firstUsePolicy,
-    storedAllocations
+    storedAllocations,
+    mergedGrants
   );
 
   const carried = Number(

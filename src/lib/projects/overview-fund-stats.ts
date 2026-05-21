@@ -6,6 +6,7 @@ import {
   type AnnualGrantRow,
   type ProjectFirstUsePolicy,
 } from '@/lib/leave/entitlement-grants';
+import { mergeGrantsPerUserByDefinition } from '@/lib/leave/user-annual-funds-shared';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 
 export type AnnualFundDefinitionOption = {
@@ -261,7 +262,9 @@ export function buildMemberAnnualBalances(
   grants: OverviewGrantRow[],
   requests: AnnualBalanceRequestRow[],
   policy?: ProjectFirstUsePolicy,
-  storedAllocations: StoredRequestAllocation[] = []
+  storedAllocations: StoredRequestAllocation[] = [],
+  /** Merged per user×definition totals (shared across projects). Defaults to `grants`. */
+  grantTotalsForPool: OverviewGrantRow[] = grants
 ): MemberAnnualBalancesResult {
   const grantsById = new Map(grants.map((grant) => [grant.id, grant]));
   const pickerGrants = grants.map(toGrantPickerRow);
@@ -273,7 +276,7 @@ export function buildMemberAnnualBalances(
     byDefinition[definition.id] = {};
   }
 
-  for (const grant of grants) {
+  for (const grant of grantTotalsForPool) {
     const total = Number(grant.days_allocated || 0);
     if (grant.definition_id) {
       const byUser = byDefinition[grant.definition_id] || {};
@@ -391,10 +394,44 @@ export async function loadProjectAnnualBalanceInputs(
 ): Promise<{
   definitions: AnnualFundDefinitionOption[];
   grants: OverviewGrantRow[];
+  grantTotalsForPool: OverviewGrantRow[];
   requests: AnnualBalanceRequestRow[];
   policy: ProjectFirstUsePolicy;
   storedAllocations: StoredRequestAllocation[];
 }> {
+  const { data: members } = await supabase
+    .from('project_members')
+    .select('user_id')
+    .eq('project_id', projectId);
+
+  const memberUserIds = [...new Set((members || []).map((row) => row.user_id as string).filter(Boolean))];
+
+  const empty = {
+    definitions: [] as AnnualFundDefinitionOption[],
+    grants: [] as OverviewGrantRow[],
+    grantTotalsForPool: [] as OverviewGrantRow[],
+    requests: [] as AnnualBalanceRequestRow[],
+    policy: { firstUseMonth: null, firstUseDay: null } as ProjectFirstUsePolicy,
+    storedAllocations: [] as StoredRequestAllocation[],
+  };
+
+  if (memberUserIds.length === 0) {
+    const policy = await fetchProjectFirstUsePolicy(supabase, projectId);
+    const { data: fundDefinitions } = await supabase
+      .from('annual_fund_definitions')
+      .select('id, label')
+      .order('sort_order', { ascending: true })
+      .order('label', { ascending: true });
+    return {
+      ...empty,
+      definitions: (fundDefinitions || []).map((row) => ({
+        id: row.id as string,
+        label: row.label as string,
+      })),
+      policy,
+    };
+  }
+
   const [{ data: fundDefinitions }, { data: grants }, { data: requests }, policy] = await Promise.all([
     supabase
       .from('annual_fund_definitions')
@@ -403,18 +440,22 @@ export async function loadProjectAnnualBalanceInputs(
       .order('label', { ascending: true }),
     supabase
       .from('annual_entitlement_grants')
-      .select('id, user_id, definition_id, days_allocated, valid_from, valid_to, grant_year, source')
-      .eq('project_id', projectId),
+      .select('id, user_id, definition_id, days_allocated, valid_from, valid_to, grant_year, source, project_id')
+      .in('user_id', memberUserIds),
     supabase
       .from('leave_requests')
       .select('id, user_id, status, start_date, working_days_count')
-      .eq('project_id', projectId)
+      .in('user_id', memberUserIds)
       .eq('type', 'annual')
       .in('status', ['pending', 'approved']),
     fetchProjectFirstUsePolicy(supabase, projectId),
   ]);
 
   const grantRows = (grants || []) as OverviewGrantRow[];
+  const grantTotalsForPool = mergeGrantsPerUserByDefinition(
+    (grants || []) as Array<OverviewGrantRow & { project_id?: string }>,
+    projectId
+  );
   const requestRows = (requests || []).map((row) => ({
     id: row.id as string,
     user_id: row.user_id as string,
@@ -448,6 +489,7 @@ export async function loadProjectAnnualBalanceInputs(
       label: row.label as string,
     })),
     grants: grantRows,
+    grantTotalsForPool,
     requests: requestRows,
     policy,
     storedAllocations,

@@ -1,3 +1,8 @@
+import {
+  fetchGrantIdsForUserDefinition,
+  sharedPoolDaysAllocated,
+  sumAllocatedAcrossDefinitionGrants,
+} from '@/lib/leave/user-annual-funds-shared';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 
 export type AnnualGrantRow = {
@@ -10,6 +15,7 @@ export type AnnualGrantRow = {
   valid_from: string;
   valid_to: string | null;
   source: string;
+  definition_id?: string | null;
 };
 
 export type AnnualAllocationInput = { grantId: string; workingDays: number };
@@ -223,7 +229,9 @@ export async function fetchGrantsForMember(
 ): Promise<AnnualGrantRow[]> {
   const { data, error } = await supabase
     .from('annual_entitlement_grants')
-    .select('id, project_id, user_id, grant_year, label, days_allocated, valid_from, valid_to, source')
+    .select(
+      'id, project_id, user_id, grant_year, label, days_allocated, valid_from, valid_to, source, definition_id'
+    )
     .eq('project_id', projectId)
     .eq('user_id', userId)
     .order('valid_from', { ascending: true });
@@ -312,10 +320,23 @@ export async function validateAnnualAllocationsAgainstGrants(
       return { ok: false, status: 400, error: 'Grant does not belong to this member/project.' };
     }
 
-    const consumed = await sumAllocatedToGrant(supabase, row.grantId, {
+    const definitionId = grant.definition_id ?? null;
+    const poolGrantIds = await fetchGrantIdsForUserDefinition(
+      supabase,
+      params.userId,
+      definitionId,
+      row.grantId
+    );
+    const consumed = await sumAllocatedAcrossDefinitionGrants(supabase, poolGrantIds, {
       excludeLeaveRequestId: params.excludeLeaveRequestId,
     });
-    const remaining = grantRemaining(grant, consumed);
+    const poolDays = await sharedPoolDaysAllocated(
+      supabase,
+      params.userId,
+      definitionId,
+      Number(grant.days_allocated || 0)
+    );
+    const remaining = poolDays - consumed;
     if (row.workingDays > remaining + 1e-6) {
       return {
         ok: false,
@@ -349,14 +370,26 @@ export async function fetchAnnualGrantSplitHints(
   > = [];
 
   for (const g of eligible) {
-    const consumed = await sumAllocatedToGrant(supabase, g.id);
+    const poolGrantIds = await fetchGrantIdsForUserDefinition(
+      supabase,
+      userId,
+      g.definition_id ?? null,
+      g.id
+    );
+    const consumed = await sumAllocatedAcrossDefinitionGrants(supabase, poolGrantIds);
+    const poolDays = await sharedPoolDaysAllocated(
+      supabase,
+      userId,
+      g.definition_id ?? null,
+      Number(g.days_allocated || 0)
+    );
     eligibleSummaries.push({
       id: g.id,
       label: g.label,
       grant_year: g.grant_year,
       valid_from: g.valid_from,
       valid_to: resolveGrantBookableEnd(g, policy.firstUseMonth, policy.firstUseDay),
-      remaining: grantRemaining(g, consumed),
+      remaining: poolDays - consumed,
     });
   }
 

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { sumAllocatedToGrant } from '@/lib/leave/entitlement-grants';
+import {
+  fetchGrantIdsForUserDefinition,
+  sumAllocatedAcrossDefinitionGrants,
+} from '@/lib/leave/user-annual-funds-shared';
 import { syncUserLeaveTotals } from '@/lib/leave/global-balance';
 import { canEditMemberLeaveBalances, getCurrentUser } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
@@ -55,7 +59,13 @@ export async function PATCH(
     return NextResponse.json({ error: gErr?.message || 'Grant not found' }, { status: 404 });
   }
 
-  const reserved = await sumAllocatedToGrant(supabase, grant.id);
+  const poolGrantIds = await fetchGrantIdsForUserDefinition(
+    supabase,
+    grant.user_id as string,
+    (grant.definition_id as string | null) ?? null,
+    grant.id as string
+  );
+  const reserved = await sumAllocatedAcrossDefinitionGrants(supabase, poolGrantIds);
   const nextDays =
     p.days_allocated !== undefined ? p.days_allocated : Number(grant.days_allocated ?? 0);
 
@@ -126,14 +136,28 @@ export async function PATCH(
       if (syncResult.error) {
         return NextResponse.json({ error: syncResult.error.message }, { status: 500 });
       }
+
+      if (grant.definition_id) {
+        const { error: poolErr } = await service
+          .from('annual_entitlement_grants')
+          .update({ days_allocated: nextDays, updated_at: now })
+          .eq('user_id', grant.user_id as string)
+          .eq('definition_id', grant.definition_id as string);
+        if (poolErr) return NextResponse.json({ error: poolErr.message }, { status: 500 });
+      }
     }
 
     if (Object.keys(defPatch).length > 0) {
-      const { error: uErr } = await supabase
-        .from('annual_entitlement_grants')
-        .update(defPatch)
-        .eq('id', grant.id);
-
+      const service = createServiceClient();
+      let defQuery = service.from('annual_entitlement_grants').update(defPatch);
+      if (grant.definition_id) {
+        defQuery = defQuery
+          .eq('user_id', grant.user_id as string)
+          .eq('definition_id', grant.definition_id as string);
+      } else {
+        defQuery = defQuery.eq('id', grant.id);
+      }
+      const { error: uErr } = await defQuery;
       if (uErr) return NextResponse.json({ error: uErr.message }, { status: 500 });
     }
 
@@ -163,18 +187,27 @@ export async function PATCH(
     return NextResponse.json({ error: 'No changes applied' }, { status: 400 });
   }
 
-  const { data: updated, error: uErr } = await supabase
-    .from('annual_entitlement_grants')
-    .update(grantUpdate)
-    .eq('id', grant.id)
-    .select(
-      'id, user_id, grant_year, label, days_allocated, valid_from, valid_to, source, definition_id'
-    )
-    .single();
+  const service = createServiceClient();
+  let updateQuery = service.from('annual_entitlement_grants').update(grantUpdate);
 
-  if (uErr || !updated) {
+  if (grant.definition_id) {
+    updateQuery = updateQuery
+      .eq('user_id', grant.user_id as string)
+      .eq('definition_id', grant.definition_id as string);
+  } else {
+    updateQuery = updateQuery.eq('id', grant.id);
+  }
+
+  const { data: updatedRows, error: uErr } = await updateQuery.select(
+    'id, user_id, grant_year, label, days_allocated, valid_from, valid_to, source, definition_id'
+  );
+
+  if (uErr || !updatedRows?.length) {
     return NextResponse.json({ error: uErr?.message || 'Failed to update grant' }, { status: 500 });
   }
+
+  const updated =
+    updatedRows.find((row) => row.id === grant.id) ?? updatedRows[0];
 
   return NextResponse.json({ grant: updated, reserved_working_days: reserved });
 }
