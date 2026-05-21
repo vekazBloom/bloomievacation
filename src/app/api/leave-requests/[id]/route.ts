@@ -5,7 +5,7 @@ import {
   notifyRequestEdited,
 } from '@/lib/leave/notify';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
-import { canReviewLeave, getCurrentUser } from '@/lib/projects/access';
+import { canEditMemberLeaveBalances, canReviewLeave, getCurrentUser } from '@/lib/projects/access';
 import {
   fetchGrantsForMember,
   fetchProjectFirstUsePolicy,
@@ -65,6 +65,27 @@ export async function PATCH(
       await supabase.from('leave_request_grant_allocations').delete().eq('leave_request_id', params.id);
     }
 
+    const canReallocateFunds = await canEditMemberLeaveBalances(user.id);
+    const allocationUpdate = parsed.data.annualAllocations;
+
+    if (allocationUpdate?.length && existing.type === 'annual') {
+      if (!canReallocateFunds) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      const sum = allocationUpdate.reduce((total, row) => total + row.workingDays, 0);
+      if (Math.abs(sum - Number(existing.working_days_count)) > 0.02) {
+        return NextResponse.json(
+          { error: 'Fund day split must equal the request working days.' },
+          { status: 400 }
+        );
+      }
+      const grants = await fetchGrantsForMember(supabase, existing.project_id, existing.user_id);
+      const explicitCheck = validateExplicitAnnualAllocations(grants, allocationUpdate);
+      if (!explicitCheck.ok) {
+        return NextResponse.json({ error: explicitCheck.error }, { status: 400 });
+      }
+    }
+
     if (status === 'approved') {
       const balanceCheck = await assertLeaveBalance(supabase, {
         userId: existing.user_id,
@@ -72,6 +93,7 @@ export async function PATCH(
         type: existing.type,
         workingDays: existing.working_days_count,
         excludeRequestId: params.id,
+        annualAllocations: allocationUpdate,
       });
       if (!balanceCheck.ok) {
         return NextResponse.json({ error: balanceCheck.error }, { status: balanceCheck.status });
@@ -92,6 +114,20 @@ export async function PATCH(
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    if (
+      status === 'approved' &&
+      allocationUpdate?.length &&
+      existing.type === 'annual' &&
+      canReallocateFunds
+    ) {
+      const { error: allocError } = await replaceAnnualAllocations(
+        supabase,
+        params.id,
+        allocationUpdate
+      );
+      if (allocError) return NextResponse.json({ error: allocError.message }, { status: 500 });
+    }
 
     await supabase.from('leave_request_history').insert({
       request_id: params.id,

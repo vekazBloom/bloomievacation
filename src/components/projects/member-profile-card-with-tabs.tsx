@@ -138,6 +138,7 @@ export function MemberProfileCardWithTabs({
   canReview,
   canManage,
   canEditLeaveBalances,
+  projectId,
   fundDefinitions,
   currentUserId,
 }: {
@@ -166,6 +167,7 @@ export function MemberProfileCardWithTabs({
   canReview: boolean;
   canManage: boolean;
   canEditLeaveBalances: boolean;
+  projectId: string;
   fundDefinitions: Array<{ id: string; label: string }>;
   currentUserId: string;
 }) {
@@ -514,6 +516,8 @@ export function MemberProfileCardWithTabs({
               <LeaveRequestsPanel
                 requests={requests}
                 canReview={canReview}
+                canEditRequestFunds={canEditLeaveBalances}
+                projectId={projectId}
                 projectSlug={projectSlug}
                 currentUserId={currentUserId}
               />

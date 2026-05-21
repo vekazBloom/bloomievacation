@@ -182,6 +182,8 @@ export default async function ProjectPage({ params }: { params: { slug: string }
             <LeaveRequestsPanel
               requests={pendingRequests || []}
               canReview={canReview}
+              canEditRequestFunds={Boolean(profile.is_system_admin)}
+              projectId={projectId}
               projectSlug={project.slug}
               currentUserId={user.id}
             />

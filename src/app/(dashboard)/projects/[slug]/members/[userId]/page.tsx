@@ -289,6 +289,7 @@ export default async function ProjectMemberProfilePage({
         canReview={canReview}
         canManage={canManage}
         canEditLeaveBalances={canEditLeaveBalances}
+        projectId={projectId}
         fundDefinitions={fundDefinitionOptions}
         currentUserId={user.id}
       />
