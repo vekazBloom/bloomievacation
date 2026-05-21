@@ -122,6 +122,16 @@ export async function realignAnnualGrantAllocationsForMember(
       .eq('leave_request_id', lr.id as string);
 
     const rows = existing || [];
+    const eligibleIds = new Set(eligible.map((g) => g.id));
+
+    if (rows.length === 1 && !eligibleIds.has(rows[0].grant_id as string)) {
+      continue;
+    }
+
+    if (rows.length > 1) {
+      continue;
+    }
+
     const alreadyCorrect =
       rows.length === 1 &&
       rows[0].grant_id === target.id &&
@@ -358,12 +368,19 @@ export async function replaceAnnualAllocations(
   leaveRequestId: string,
   allocations: AnnualAllocationInput[]
 ) {
-  await supabase.from('leave_request_grant_allocations').delete().eq('leave_request_id', leaveRequestId);
+  const { error: deleteError } = await supabase
+    .from('leave_request_grant_allocations')
+    .delete()
+    .eq('leave_request_id', leaveRequestId);
+  if (deleteError) return { error: deleteError };
+
   if (allocations.length === 0) return { error: null };
+
   const rows = allocations.map((a) => ({
     leave_request_id: leaveRequestId,
     grant_id: a.grantId,
     working_days: a.workingDays,
   }));
-  return supabase.from('leave_request_grant_allocations').insert(rows);
+  const { error: insertError } = await supabase.from('leave_request_grant_allocations').insert(rows);
+  return { error: insertError };
 }

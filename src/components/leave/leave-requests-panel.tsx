@@ -415,8 +415,11 @@ export function LeaveRequestsPanel({
                             action: decisionAction,
                             decisionNote: decisionNote.trim() || null,
                           };
-                          const allocations = buildAnnualAllocationsPayload(request);
-                          if (allocations) payload.annualAllocations = allocations;
+                          if (showFundEditor) {
+                            const allocations = buildAnnualAllocationsPayload(request);
+                            if (!allocations) return;
+                            payload.annualAllocations = allocations;
+                          }
                           void updateRequest(
                             request.id,
                             payload,

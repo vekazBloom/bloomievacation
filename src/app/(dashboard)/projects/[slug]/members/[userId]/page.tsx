@@ -8,7 +8,7 @@ import { fetchApprovedUsageGloballyForUser } from '@/lib/leave/approved-usage-fr
 import { leaveRequestWithUserSelect } from '@/lib/leave/queries';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { ensureMemberFundGrantsForAssignments } from '@/lib/leave/ensure-member-fund-grants';
-import { fetchProjectFirstUsePolicy, realignAnnualGrantAllocationsForMember } from '@/lib/leave/entitlement-grants';
+import { fetchProjectFirstUsePolicy } from '@/lib/leave/entitlement-grants';
 import { buildMemberAnnualBalances } from '@/lib/projects/overview-fund-stats';
 import {
   canEditMemberLeaveBalances,
@@ -147,11 +147,6 @@ export default async function ProjectMemberProfilePage({
         grantsData = refreshedGrants;
       }
     }
-  }
-
-  const realign = await realignAnnualGrantAllocationsForMember(service, projectId, params.userId);
-  if (realign.error) {
-    console.error('[member profile] realignAnnualGrantAllocationsForMember', realign.error);
   }
 
   const defLabelMap = new Map((defRows || []).map((d) => [d.id as string, d.label as string]));

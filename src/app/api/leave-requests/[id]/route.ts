@@ -121,12 +121,15 @@ export async function PATCH(
       existing.type === 'annual' &&
       canReallocateFunds
     ) {
+      const allocClient = createServiceClient();
       const { error: allocError } = await replaceAnnualAllocations(
-        supabase,
+        allocClient,
         params.id,
         allocationUpdate
       );
-      if (allocError) return NextResponse.json({ error: allocError.message }, { status: 500 });
+      if (allocError) {
+        return NextResponse.json({ error: allocError.message }, { status: 500 });
+      }
     }
 
     await supabase.from('leave_request_history').insert({
