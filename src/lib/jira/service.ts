@@ -35,6 +35,15 @@ type UserRow = {
   name: string | null;
 };
 
+function isMissingBoardConfigColumns(error: { message?: string; details?: string; code?: string } | null | undefined) {
+  const text = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  return (
+    error?.code === 'PGRST204' ||
+    text.includes('board_configs') ||
+    text.includes('default_board_id')
+  );
+}
+
 function dedupeIds(ids: string[]) {
   return Array.from(new Set(ids.filter(Boolean)));
 }
@@ -69,41 +78,55 @@ export async function getAuthedProfile() {
 }
 
 export async function getJiraConnection(): Promise<JiraConnectionConfig | null> {
-  const service = createServiceClient() as any;
-  const { data, error } = await service
-    .from('jira_connections')
-    .select('site_url, jira_email, jira_api_token, project_key, board_id, default_board_id, board_configs')
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data) return null;
-  const boardConfigs = ((data.board_configs || []) as JiraBoardConfig[]).filter(
+  const raw = await getRawJiraConnection();
+  if (!raw) return null;
+  const boardConfigs = ((raw.board_configs || []) as JiraBoardConfig[]).filter(
     (row) => row && Number.isInteger(Number(row.boardId)) && typeof row.projectKey === 'string'
   );
-  const defaultBoardId = Number(data.default_board_id || data.board_id);
+  const defaultBoardId = Number(raw.default_board_id || raw.board_id);
   const defaultBoardConfig =
     boardConfigs.find((row) => Number(row.boardId) === defaultBoardId) || null;
 
   return {
-    siteUrl: data.site_url,
-    jiraEmail: data.jira_email,
-    jiraApiToken: data.jira_api_token,
-    projectKey: defaultBoardConfig?.projectKey || data.project_key,
+    siteUrl: raw.site_url,
+    jiraEmail: raw.jira_email,
+    jiraApiToken: raw.jira_api_token,
+    projectKey: defaultBoardConfig?.projectKey || raw.project_key,
     boardId: defaultBoardId,
   };
 }
 
 export async function getRawJiraConnection() {
   const service = createServiceClient() as any;
-  const { data, error } = await service
+  const modern = await service
     .from('jira_connections')
     .select(
       'id, site_url, jira_email, jira_api_token, project_key, board_id, default_board_id, board_configs'
     )
     .limit(1)
     .maybeSingle();
-  if (error || !data) return null;
-  return data;
+
+  if (!modern.error && modern.data) return modern.data;
+  if (!isMissingBoardConfigColumns(modern.error)) return null;
+
+  const legacy = await service
+    .from('jira_connections')
+    .select('id, site_url, jira_email, jira_api_token, project_key, board_id')
+    .limit(1)
+    .maybeSingle();
+  if (legacy.error || !legacy.data) return null;
+
+  return {
+    ...legacy.data,
+    default_board_id: legacy.data.board_id,
+    board_configs: [
+      {
+        boardId: Number(legacy.data.board_id),
+        projectKey: legacy.data.project_key,
+        label: `${legacy.data.project_key} board ${legacy.data.board_id}`,
+      },
+    ],
+  };
 }
 
 export async function resolveJiraConnectionForProfile({

@@ -42,6 +42,15 @@ const payloadSchema = z.object({
 
 export const dynamic = 'force-dynamic';
 
+function isMissingBoardConfigColumns(error: { message?: string; details?: string; code?: string } | null | undefined) {
+  const text = `${error?.message || ''} ${error?.details || ''}`.toLowerCase();
+  return (
+    error?.code === 'PGRST204' ||
+    text.includes('board_configs') ||
+    text.includes('default_board_id')
+  );
+}
+
 export async function GET() {
   const auth = await getAuthedProfile();
   if (!auth) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -50,12 +59,34 @@ export async function GET() {
   }
 
   const service = createServiceClient() as any;
-  const { data, error } = await service
+  const modern = await service
     .from('jira_connections')
     .select('site_url, project_key, board_id, jira_email, default_board_id, board_configs')
     .limit(1)
     .maybeSingle();
-
+  let data = modern.data;
+  let error = modern.error;
+  if (error && isMissingBoardConfigColumns(error)) {
+    const legacy = await service
+      .from('jira_connections')
+      .select('site_url, project_key, board_id, jira_email')
+      .limit(1)
+      .maybeSingle();
+    data = legacy.data
+      ? {
+          ...legacy.data,
+          default_board_id: legacy.data.board_id,
+          board_configs: [
+            {
+              boardId: Number(legacy.data.board_id),
+              projectKey: legacy.data.project_key,
+              label: `${legacy.data.project_key} board ${legacy.data.board_id}`,
+            },
+          ],
+        }
+      : null;
+    error = legacy.error;
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({
@@ -113,10 +144,26 @@ export async function PATCH(request: NextRequest) {
     (payload as any).jira_api_token = parsed.data.jiraApiToken;
   }
 
-  const { error } = existing?.id
+  let writeResult = existing?.id
     ? await service.from('jira_connections').update(payload).eq('id', existing.id)
     : await service.from('jira_connections').insert(payload);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (writeResult.error && isMissingBoardConfigColumns(writeResult.error)) {
+    const legacyPayload: any = {
+      site_url: parsed.data.siteUrl,
+      project_key: parsed.data.projectKey,
+      board_id: parsed.data.boardId,
+      jira_email: parsed.data.jiraEmail,
+      created_by: auth.user.id,
+    };
+    if (parsed.data.jiraApiToken) {
+      legacyPayload.jira_api_token = parsed.data.jiraApiToken;
+    }
+    writeResult = existing?.id
+      ? await service.from('jira_connections').update(legacyPayload).eq('id', existing.id)
+      : await service.from('jira_connections').insert(legacyPayload);
+  }
+
+  if (writeResult.error) return NextResponse.json({ error: writeResult.error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
