@@ -14,6 +14,7 @@ import {
   Plus,
   CalendarPlus,
   MailPlus,
+  BarChart3,
 } from 'lucide-react';
 import { RemoteImage } from '@/components/ui/remote-image';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,7 @@ export function Sidebar({
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/projects', label: 'Projects', icon: FolderKanban },
     { href: '/calendar', label: 'My calendar', icon: CalendarDays },
+    { href: '/jira-analytics', label: 'JIRA ANALYTICS', icon: BarChart3 },
     { href: '/profile', label: 'Profile', icon: Users, exact: true },
     { href: '/profile/leave-approval-forwarding', label: 'Approval email copies', icon: MailPlus },
   ];
