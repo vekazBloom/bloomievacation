@@ -15,7 +15,7 @@ type Mapping = {
   jira_display_name: string | null;
 };
 
-type BoardConfig = { boardId: number; projectKey: string; label?: string };
+type BoardConfig = { boardId: string; projectKey: string; label?: string };
 
 export function JiraSettingsPanel() {
   const [siteUrl, setSiteUrl] = useState('');
@@ -54,7 +54,7 @@ export function JiraSettingsPanel() {
       setDefaultBoardId(String(configPayload.config.defaultBoardId || configPayload.config.boardId || ''));
       setBoardConfigs(
         (configPayload.config.boardConfigs || []).map((row: any) => ({
-          boardId: Number(row.boardId),
+          boardId: String(row.boardId ?? ''),
           projectKey: String(row.projectKey || ''),
           label: row.label ? String(row.label) : '',
         }))
@@ -159,7 +159,7 @@ export function JiraSettingsPanel() {
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  setBoardConfigs((rows) => [...rows, { boardId: 0, projectKey: projectKey || 'GO', label: '' }])
+                  setBoardConfigs((rows) => [...rows, { boardId: '', projectKey: projectKey || 'GO', label: '' }])
                 }
               >
                 Add board
@@ -170,14 +170,15 @@ export function JiraSettingsPanel() {
                 <p className="text-sm text-muted-foreground">No boards configured yet.</p>
               ) : (
                 boardConfigs.map((row, idx) => (
-                  <div key={`${idx}-${row.boardId}`} className="grid gap-2 md:grid-cols-4">
+                  <div key={idx} className="grid gap-2 md:grid-cols-4">
                     <Input
                       placeholder="Board ID"
-                      value={String(row.boardId || '')}
+                      value={row.boardId}
                       onChange={(e) => {
-                        const value = Number(e.target.value || 0);
                         setBoardConfigs((rows) =>
-                          rows.map((item, itemIdx) => (itemIdx === idx ? { ...item, boardId: value } : item))
+                          rows.map((item, itemIdx) =>
+                            itemIdx === idx ? { ...item, boardId: e.target.value } : item
+                          )
                         );
                       }}
                     />
