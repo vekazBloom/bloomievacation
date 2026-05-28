@@ -133,3 +133,9 @@ export async function sumIssueTimespent(config: JiraConnectionConfig, jql: strin
     return sum + Number(issue.fields?.timespent || 0);
   }, 0);
 }
+
+export async function listIssueKeys(config: JiraConnectionConfig, jql: string): Promise<string[]> {
+  const result = await searchIssues(config, jql, ['key']);
+  const keys = (result.issues || []).map((issue) => issue.key).filter(Boolean);
+  return Array.from(new Set(keys));
+}

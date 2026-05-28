@@ -3,6 +3,7 @@ import {
   countIssues,
   getBoardSprints,
   getSprint,
+  listIssueKeys,
   sumIssueTimespent,
   type JiraConnectionConfig,
 } from '@/lib/jira/client';
@@ -221,7 +222,7 @@ export async function syncSprintMetrics({
 
   for (const mapping of mappings) {
     const assigneeJql = `${baseJql} AND assignee = ${mapping.jira_account_id}`;
-    const [issueCount, qaReadyToDoneCount, qaReadyToRejectedCount, trackedTimeSeconds] =
+    const [issueCount, qaReadyToDoneCount, qaReadyToRejectedCount, trackedTimeSeconds, doneKeys, rejectedKeys] =
       await Promise.all([
         countIssues(config, assigneeJql),
         countIssues(
@@ -233,7 +234,17 @@ export async function syncSprintMetrics({
           `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`
         ),
         sumIssueTimespent(config, assigneeJql),
+        listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "DONE"`),
+        listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`),
       ]);
+
+    const doneSet = new Set(doneKeys);
+    const rejectedSet = new Set(rejectedKeys);
+    let bothTransitionsCount = 0;
+    for (const key of doneSet) {
+      if (rejectedSet.has(key)) bothTransitionsCount += 1;
+    }
+    const doneOnlyCount = Math.max(0, doneSet.size - bothTransitionsCount);
 
     await service.from('jira_sprint_user_metrics').upsert(
       {
@@ -245,6 +256,8 @@ export async function syncSprintMetrics({
         issue_count: issueCount,
         qa_ready_to_done_count: qaReadyToDoneCount,
         qa_ready_to_rejected_count: qaReadyToRejectedCount,
+        qa_ready_done_only_count: doneOnlyCount,
+        qa_ready_both_transitions_count: bothTransitionsCount,
         tracked_time_seconds: trackedTimeSeconds,
       },
       { onConflict: 'board_id,sprint_id,app_user_id' }

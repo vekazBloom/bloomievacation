@@ -44,6 +44,8 @@ type MetricRow = {
   issue_count: number;
   qa_ready_to_done_count: number;
   qa_ready_to_rejected_count: number;
+  qa_ready_done_only_count?: number;
+  qa_ready_both_transitions_count?: number;
   tracked_time_seconds: number;
   users?: { name?: string | null; email?: string | null };
 };
@@ -465,7 +467,7 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
           ) : (
             <div className="space-y-2">
               {metrics.map((row) => (
-                <div key={row.app_user_id} className="grid grid-cols-1 gap-2 rounded-md border border-border px-3 py-3 text-sm md:grid-cols-5">
+                <div key={row.app_user_id} className="grid grid-cols-1 gap-2 rounded-md border border-border px-3 py-3 text-sm md:grid-cols-7">
                   <div>
                     <p className="font-medium">{row.users?.name || row.jira_display_name || row.users?.email}</p>
                     <p className="text-xs text-muted-foreground font-mono">{row.jira_account_id}</p>
@@ -473,6 +475,14 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
                   <MetricInline label="Tickets" value={row.issue_count} />
                   <MetricInline label="QA READY→DONE" value={row.qa_ready_to_done_count} />
                   <MetricInline label="QA READY→QA REJECTED" value={row.qa_ready_to_rejected_count} />
+                  <MetricInline
+                    label="Only DONE (never rejected)"
+                    value={row.qa_ready_done_only_count ?? 0}
+                  />
+                  <MetricInline
+                    label="Had both transitions"
+                    value={row.qa_ready_both_transitions_count ?? 0}
+                  />
                   <MetricInline label="Tracked time" value={formatSeconds(row.tracked_time_seconds)} />
                 </div>
               ))}
