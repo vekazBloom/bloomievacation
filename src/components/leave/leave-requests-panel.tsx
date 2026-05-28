@@ -143,16 +143,19 @@ export function LeaveRequestsPanel({
     resetFundEditor();
   }
 
-  function openDecisionEditor(request: {
+  function openDecisionEditor(
+    request: {
     id: string;
     status: string;
     decision_note?: string | null;
     type: string;
     balance_project_id?: string | null;
     leave_request_grant_allocations?: RequestAllocationRow[] | null;
-  }) {
+    },
+    actionOverride?: 'reject' | 'approve'
+  ) {
     setRejectingId(request.id);
-    setDecisionAction(request.status === 'approved' ? 'approve' : 'reject');
+    setDecisionAction(actionOverride ?? (request.status === 'approved' ? 'approve' : 'reject'));
     setDecisionNote(request.decision_note || '');
 
     setSickPoolProjectId((request.balance_project_id as string | null) ?? '');
@@ -327,7 +330,7 @@ export function LeaveRequestsPanel({
                           onClick={() => {
                             setDecisionAction('approve');
                             setDecisionNote('');
-                            openDecisionEditor(request);
+                            openDecisionEditor(request, 'approve');
                           }}
                         >
                           Approve
@@ -338,7 +341,7 @@ export function LeaveRequestsPanel({
                           onClick={() => {
                             setDecisionAction('reject');
                             setDecisionNote('');
-                            openDecisionEditor(request);
+                            openDecisionEditor(request, 'reject');
                           }}
                         >
                           Reject
