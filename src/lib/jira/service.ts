@@ -1,5 +1,11 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { countIssues, getSprint, sumIssueTimespent, type JiraConnectionConfig } from '@/lib/jira/client';
+import {
+  countIssues,
+  getBoardSprints,
+  getSprint,
+  sumIssueTimespent,
+  type JiraConnectionConfig,
+} from '@/lib/jira/client';
 
 type MappingRow = {
   app_user_id: string;
@@ -18,6 +24,29 @@ type SnapshotTotals = {
   carryOverTotal: number;
   completionRate: number;
 };
+
+type ProfileScope = { id: string; is_system_admin: boolean };
+
+type UserRow = {
+  id: string;
+  email: string;
+  name: string | null;
+};
+
+function dedupeIds(ids: string[]) {
+  return Array.from(new Set(ids.filter(Boolean)));
+}
+
+function normalizeRequestedUserIds(
+  requested: string[] | undefined,
+  profile: ProfileScope
+): string[] | null {
+  if (!profile.is_system_admin) {
+    return [profile.id];
+  }
+  if (!requested || requested.length === 0) return null;
+  return dedupeIds(requested);
+}
 
 export async function getAuthedProfile() {
   const supabase = createClient();
@@ -212,4 +241,170 @@ export async function getUserSprintMetrics(sprintId: number, profile: { id: stri
   }));
 
   return { snapshot, userMetrics: merged };
+}
+
+export async function listBoardSprintsWithSync(profile: ProfileScope) {
+  const config = await getJiraConnection();
+  if (!config) return [];
+  const sprints = await getBoardSprints(config);
+  const service = createServiceClient() as any;
+  const sprintIds = sprints.map((s) => s.id);
+
+  const { data: snapshots } = sprintIds.length
+    ? await service
+        .from('jira_sprint_snapshots')
+        .select('sprint_id, snapshot_at')
+        .eq('board_id', config.boardId)
+        .in('sprint_id', sprintIds)
+    : { data: [] };
+
+  const bySprintId = new Map<number, string>(
+    (snapshots || []).map((row: any) => [Number(row.sprint_id), row.snapshot_at])
+  );
+
+  return sprints
+    .map((s) => {
+      const lastSyncedAt = bySprintId.get(Number(s.id)) ?? null;
+      return {
+        id: s.id,
+        name: s.name,
+        state: s.state,
+        startDate: s.startDate ?? null,
+        endDate: s.endDate ?? null,
+        completeDate: s.completeDate ?? null,
+        isSynced: Boolean(lastSyncedAt),
+        lastSyncedAt,
+        lastSyncState: lastSyncedAt ? 'synced' : 'not_synced',
+        canSync: profile.is_system_admin,
+      };
+    })
+    .sort((a, b) => b.id - a.id);
+}
+
+async function fetchUsersByIds(service: any, userIds: string[]) {
+  if (userIds.length === 0) return [] as UserRow[];
+  const { data } = await service.from('users').select('id, email, name').in('id', userIds);
+  return (data || []) as UserRow[];
+}
+
+export async function getSprintComparisonData({
+  sprintIds,
+  profile,
+}: {
+  sprintIds: number[];
+  profile: ProfileScope;
+}) {
+  const config = await getJiraConnection();
+  if (!config) return { snapshots: [], userTotals: [] as any[] };
+  const service = createServiceClient() as any;
+
+  const { data: snapshots } = await service
+    .from('jira_sprint_snapshots')
+    .select('*')
+    .eq('board_id', config.boardId)
+    .in('sprint_id', sprintIds)
+    .order('sprint_id', { ascending: true });
+
+  let metricsQuery = service
+    .from('jira_sprint_user_metrics')
+    .select('*')
+    .eq('board_id', config.boardId)
+    .in('sprint_id', sprintIds);
+
+  if (!profile.is_system_admin) {
+    metricsQuery = metricsQuery.eq('app_user_id', profile.id);
+  }
+
+  const { data: metrics } = await metricsQuery;
+  const metricRows = (metrics || []) as any[];
+  const userIds = dedupeIds(metricRows.map((row) => row.app_user_id));
+  const users = await fetchUsersByIds(service, userIds);
+  const usersById = new Map(users.map((u) => [u.id, u]));
+
+  const userTotals = userIds.map((userId) => {
+    const rows = metricRows.filter((row) => row.app_user_id === userId);
+    return {
+      appUserId: userId,
+      userName: usersById.get(userId)?.name || usersById.get(userId)?.email || 'User',
+      userEmail: usersById.get(userId)?.email || null,
+      issueCount: rows.reduce((sum, row) => sum + Number(row.issue_count || 0), 0),
+      qaReadyToDoneCount: rows.reduce((sum, row) => sum + Number(row.qa_ready_to_done_count || 0), 0),
+      qaReadyToRejectedCount: rows.reduce(
+        (sum, row) => sum + Number(row.qa_ready_to_rejected_count || 0),
+        0
+      ),
+      trackedTimeSeconds: rows.reduce((sum, row) => sum + Number(row.tracked_time_seconds || 0), 0),
+    };
+  });
+
+  return { snapshots: snapshots || [], userTotals };
+}
+
+export async function getUserComparisonData({
+  sprintIds,
+  requestedUserIds,
+  profile,
+}: {
+  sprintIds: number[];
+  requestedUserIds?: string[];
+  profile: ProfileScope;
+}) {
+  const config = await getJiraConnection();
+  if (!config) return { rows: [] as any[] };
+  const service = createServiceClient() as any;
+
+  const normalizedUserIds = normalizeRequestedUserIds(requestedUserIds, profile);
+  let query = service
+    .from('jira_sprint_user_metrics')
+    .select('*')
+    .eq('board_id', config.boardId)
+    .in('sprint_id', sprintIds)
+    .order('sprint_id', { ascending: true });
+
+  if (normalizedUserIds && normalizedUserIds.length > 0) {
+    query = query.in('app_user_id', normalizedUserIds);
+  }
+
+  const { data: rows } = await query;
+  const metrics = (rows || []) as any[];
+  const userIds = dedupeIds(metrics.map((row) => row.app_user_id));
+  const users = await fetchUsersByIds(service, userIds);
+  const usersById = new Map(users.map((u) => [u.id, u]));
+
+  const { data: snapshots } = await service
+    .from('jira_sprint_snapshots')
+    .select(
+      'sprint_id, sprint_name, sprint_state, snapshot_at, scope_total, completed_total, carry_over_total, completion_rate'
+    )
+    .eq('board_id', config.boardId)
+    .in('sprint_id', sprintIds);
+
+  const snapshotsBySprintId = new Map<number, any>(
+    (snapshots || []).map((row: any) => [Number(row.sprint_id), row])
+  );
+
+  return {
+    rows: metrics.map((row) => {
+      const user = usersById.get(row.app_user_id);
+      const sprint = snapshotsBySprintId.get(Number(row.sprint_id));
+      return {
+        sprintId: row.sprint_id,
+        sprintName: sprint?.sprint_name || `Sprint ${row.sprint_id}`,
+        sprintState: sprint?.sprint_state || 'unknown',
+        snapshotAt: sprint?.snapshot_at || null,
+        appUserId: row.app_user_id,
+        userName: user?.name || user?.email || row.jira_display_name || 'User',
+        userEmail: user?.email || null,
+        jiraAccountId: row.jira_account_id,
+        issueCount: Number(row.issue_count || 0),
+        qaReadyToDoneCount: Number(row.qa_ready_to_done_count || 0),
+        qaReadyToRejectedCount: Number(row.qa_ready_to_rejected_count || 0),
+        trackedTimeSeconds: Number(row.tracked_time_seconds || 0),
+        scopeTotal: Number(sprint?.scope_total || 0),
+        completedTotal: Number(sprint?.completed_total || 0),
+        carryOverTotal: Number(sprint?.carry_over_total || 0),
+        completionRate: Number(sprint?.completion_rate || 0),
+      };
+    }),
+  };
 }

@@ -2,6 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +23,15 @@ type Sprint = {
   id: number;
   name: string;
   state: string;
+  isSynced: boolean;
+  lastSyncedAt: string | null;
+  lastSyncState: 'synced' | 'not_synced';
 };
 
 type Snapshot = {
+  sprint_id?: number;
+  sprint_name?: string;
+  sprint_state?: string;
   scope_total: number;
   completed_total: number;
   carry_over_total: number;
@@ -45,11 +63,57 @@ type Mapping = {
 
 type AppUser = { id: string; email: string; name: string };
 
+type CompareSprintPayload = {
+  snapshots: Snapshot[];
+  userTotals: Array<{
+    appUserId: string;
+    userName: string;
+    userEmail: string | null;
+    issueCount: number;
+    qaReadyToDoneCount: number;
+    qaReadyToRejectedCount: number;
+    trackedTimeSeconds: number;
+  }>;
+};
+
+type CompareUserRow = {
+  sprintId: number;
+  sprintName: string;
+  sprintState: string;
+  snapshotAt: string | null;
+  appUserId: string;
+  userName: string;
+  userEmail: string | null;
+  jiraAccountId: string;
+  issueCount: number;
+  qaReadyToDoneCount: number;
+  qaReadyToRejectedCount: number;
+  trackedTimeSeconds: number;
+  scopeTotal: number;
+  completedTotal: number;
+  carryOverTotal: number;
+  completionRate: number;
+};
+
 function formatSeconds(seconds: number) {
   const total = Math.max(0, Number(seconds || 0));
   const hours = Math.floor(total / 3600);
   const mins = Math.floor((total % 3600) / 60);
   return `${hours}h ${mins}m`;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString();
+}
+
+function stateBadgeClass(state: string) {
+  if (state === 'active') return 'bg-emerald-100 text-emerald-800';
+  if (state === 'closed') return 'bg-slate-200 text-slate-700';
+  if (state === 'future') return 'bg-amber-100 text-amber-800';
+  return 'bg-muted text-muted-foreground';
 }
 
 export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean }) {
@@ -73,6 +137,15 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
   const [mappingUserId, setMappingUserId] = useState('');
   const [mappingAccountId, setMappingAccountId] = useState('');
   const [mappingDisplayName, setMappingDisplayName] = useState('');
+  const [selectedComparisonSprintIds, setSelectedComparisonSprintIds] = useState<number[]>([]);
+  const [selectedComparisonUserIds, setSelectedComparisonUserIds] = useState<string[]>([]);
+  const [compareSprintsData, setCompareSprintsData] = useState<CompareSprintPayload>({
+    snapshots: [],
+    userTotals: [],
+  });
+  const [compareUsersRows, setCompareUsersRows] = useState<CompareUserRow[]>([]);
+  const [comparing, setComparing] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
 
   const selectedSprint = useMemo(
     () => sprints.find((s) => s.id === selectedSprintId) || null,
@@ -89,8 +162,14 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
       return;
     }
     setSprints(payload.sprints || []);
-    if (!selectedSprintId && payload.sprints?.length) {
-      setSelectedSprintId(payload.sprints[0].id);
+    if (payload.sprints?.length) {
+      if (!selectedSprintId) {
+        setSelectedSprintId(payload.sprints[0].id);
+      }
+      setSelectedComparisonSprintIds((current) => {
+        if (current.length > 0) return current;
+        return payload.sprints.slice(0, 2).map((s: Sprint) => s.id);
+      });
     }
   }
 
@@ -122,6 +201,7 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
     }
     toast.success('Sprint synced successfully');
     await loadAnalytics(selectedSprintId);
+    await loadSprints();
   }
 
   async function loadConfigAndMappings() {
@@ -190,6 +270,89 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
     if (refreshed.ok) setMappings(refreshedPayload.mappings || []);
   }
 
+  async function runComparison() {
+    if (selectedComparisonSprintIds.length === 0) {
+      return toast.error('Select at least one sprint');
+    }
+    setComparing(true);
+    const sprintIdsParam = selectedComparisonSprintIds.join(',');
+    const userIdsParam = selectedComparisonUserIds.join(',');
+
+    const [sprintRes, userRes] = await Promise.all([
+      fetch(`/api/jira/analytics/compare-sprints?sprintIds=${encodeURIComponent(sprintIdsParam)}`),
+      fetch(
+        `/api/jira/analytics/compare-users?sprintIds=${encodeURIComponent(sprintIdsParam)}${
+          userIdsParam ? `&userIds=${encodeURIComponent(userIdsParam)}` : ''
+        }`
+      ),
+    ]);
+
+    const [sprintPayload, userPayload] = await Promise.all([
+      sprintRes.json().catch(() => ({})),
+      userRes.json().catch(() => ({})),
+    ]);
+    setComparing(false);
+
+    if (!sprintRes.ok) return toast.error(sprintPayload.error || 'Failed to compare sprints');
+    if (!userRes.ok) return toast.error(userPayload.error || 'Failed to compare users');
+
+    setCompareSprintsData({
+      snapshots: sprintPayload.snapshots || [],
+      userTotals: sprintPayload.userTotals || [],
+    });
+    setCompareUsersRows(userPayload.rows || []);
+  }
+
+  async function exportCsv() {
+    if (selectedComparisonSprintIds.length === 0) {
+      return toast.error('Select at least one sprint for export');
+    }
+    setExportingCsv(true);
+    const sprintIdsParam = selectedComparisonSprintIds.join(',');
+    const userIdsParam = selectedComparisonUserIds.join(',');
+    const url = `/api/jira/analytics/export?sprintIds=${encodeURIComponent(sprintIdsParam)}${
+      userIdsParam ? `&userIds=${encodeURIComponent(userIdsParam)}` : ''
+    }`;
+
+    const response = await fetch(url);
+    setExportingCsv(false);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      return toast.error(payload.error || 'CSV export failed');
+    }
+    const blob = await response.blob();
+    const fileUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = fileUrl;
+    anchor.download = `jira-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(fileUrl);
+  }
+
+  function toggleComparisonSprint(sprintId: number) {
+    setSelectedComparisonSprintIds((current) => {
+      if (current.includes(sprintId)) return current.filter((id) => id !== sprintId);
+      if (current.length >= 8) {
+        toast.error('You can compare up to 8 sprints');
+        return current;
+      }
+      return [...current, sprintId];
+    });
+  }
+
+  function toggleComparisonUser(userId: string) {
+    setSelectedComparisonUserIds((current) => {
+      if (current.includes(userId)) return current.filter((id) => id !== userId);
+      if (current.length >= 20) {
+        toast.error('You can compare up to 20 users');
+        return current;
+      }
+      return [...current, userId];
+    });
+  }
+
   useEffect(() => {
     void loadSprints();
     void loadConfigAndMappings();
@@ -200,6 +363,60 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
     if (selectedSprintId) void loadAnalytics(selectedSprintId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSprintId]);
+
+  useEffect(() => {
+    if (selectedComparisonSprintIds.length > 0) {
+      void runComparison();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const sprintChartData = useMemo(
+    () =>
+      (compareSprintsData.snapshots || []).map((row) => ({
+        sprint: row.sprint_name || `#${row.sprint_id}`,
+        scope: Number(row.scope_total || 0),
+        completed: Number(row.completed_total || 0),
+        carryOver: Number(row.carry_over_total || 0),
+        completionRate: Math.round(Number(row.completion_rate || 0) * 100),
+      })),
+    [compareSprintsData.snapshots]
+  );
+
+  const userAggregateData = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        userName: string;
+        tickets: number;
+        qaDone: number;
+        qaRejected: number;
+        trackedHours: number;
+      }
+    >();
+    for (const row of compareUsersRows) {
+      const current = map.get(row.appUserId) || {
+        userName: row.userName,
+        tickets: 0,
+        qaDone: 0,
+        qaRejected: 0,
+        trackedHours: 0,
+      };
+      current.tickets += Number(row.issueCount || 0);
+      current.qaDone += Number(row.qaReadyToDoneCount || 0);
+      current.qaRejected += Number(row.qaReadyToRejectedCount || 0);
+      current.trackedHours += Number(row.trackedTimeSeconds || 0) / 3600;
+      map.set(row.appUserId, current);
+    }
+    return Array.from(map.values())
+      .map((row) => ({ ...row, trackedHours: Number(row.trackedHours.toFixed(2)) }))
+      .sort((a, b) => b.trackedHours - a.trackedHours);
+  }, [compareUsersRows]);
+
+  const comparisonUsers = useMemo(() => {
+    if (!isSystemAdmin) return [] as AppUser[];
+    return users;
+  }, [isSystemAdmin, users]);
 
   return (
     <div className="space-y-6">
@@ -294,11 +511,11 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="space-y-2">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="space-y-2 min-w-[300px]">
               <Label>Sprint</Label>
               <select
-                className="h-10 min-w-[260px] rounded-md border border-input bg-card px-3 text-sm"
+                className="h-10 min-w-[300px] rounded-md border border-input bg-card px-3 text-sm font-medium shadow-sm"
                 value={selectedSprintId ?? ''}
                 onChange={(e) => setSelectedSprintId(Number(e.target.value))}
                 disabled={loadingSprints || sprints.length === 0}
@@ -306,10 +523,33 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
                 <option value="">Select sprint</option>
                 {sprints.map((sprint) => (
                   <option key={sprint.id} value={sprint.id}>
+                    {sprint.isSynced ? 'Synced - ' : 'Not synced - '}
                     {sprint.name} ({sprint.state})
                   </option>
                 ))}
               </select>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {selectedSprint ? (
+                  <>
+                    <span
+                      className={`rounded-full px-2 py-1 font-medium uppercase ${stateBadgeClass(
+                        selectedSprint.state
+                      )}`}
+                    >
+                      {selectedSprint.state}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-1 font-medium ${
+                        selectedSprint.isSynced
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {selectedSprint.isSynced ? 'Synced' : 'Not synced'}
+                    </span>
+                  </>
+                ) : null}
+              </div>
             </div>
             {isSystemAdmin ? (
               <Button onClick={runSync} disabled={!selectedSprintId || syncing}>
@@ -318,12 +558,171 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
             ) : null}
           </div>
           {selectedSprint ? (
-            <p className="text-sm text-muted-foreground">
-              Selected sprint: {selectedSprint.name} (ID {selectedSprint.id})
-            </p>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <p>
+                Selected sprint: {selectedSprint.name} (ID {selectedSprint.id})
+              </p>
+              <p>Last synced: {formatDate(selectedSprint.lastSyncedAt)}</p>
+            </div>
           ) : null}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardContent className="space-y-4 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-lg">Comparison Workspace</h2>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={runComparison} disabled={comparing}>
+                {comparing ? 'Loading...' : 'Refresh comparison'}
+              </Button>
+              <Button variant="outline" onClick={exportCsv} disabled={exportingCsv}>
+                {exportingCsv ? 'Exporting...' : 'Export CSV'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-muted px-2 py-1">
+              {selectedComparisonSprintIds.length} sprints selected
+            </span>
+            <span className="rounded-full bg-muted px-2 py-1">
+              {isSystemAdmin
+                ? `${selectedComparisonUserIds.length || comparisonUsers.length} users in scope`
+                : 'Current user scope'}
+            </span>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Sprints to compare</Label>
+              <div className="max-h-48 space-y-1 overflow-auto rounded-md border border-border p-2">
+                {sprints.map((sprint) => (
+                  <label
+                    key={sprint.id}
+                    className="flex cursor-pointer items-center justify-between rounded px-2 py-1 text-sm hover:bg-accent/40"
+                  >
+                    <span className="truncate pr-2">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={selectedComparisonSprintIds.includes(sprint.id)}
+                        onChange={() => toggleComparisonSprint(sprint.id)}
+                      />
+                      {sprint.name}
+                    </span>
+                    <span className={`rounded px-2 py-0.5 text-xs ${stateBadgeClass(sprint.state)}`}>
+                      {sprint.state}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {isSystemAdmin ? (
+              <div className="space-y-2">
+                <Label>Users to compare</Label>
+                <div className="max-h-48 space-y-1 overflow-auto rounded-md border border-border p-2">
+                  {comparisonUsers.map((user) => (
+                    <label
+                      key={user.id}
+                      className="flex cursor-pointer items-center rounded px-2 py-1 text-sm hover:bg-accent/40"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={selectedComparisonUserIds.includes(user.id)}
+                        onChange={() => toggleComparisonUser(user.id)}
+                      />
+                      <span className="truncate">{user.email}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardContent className="space-y-3 p-6">
+            <h3 className="font-display text-lg">Sprint comparison (Scope / Completed / Carry-over)</h3>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={sprintChartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="sprint" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="scope" fill="#64748b" />
+                  <Bar dataKey="completed" fill="#10b981" />
+                  <Bar dataKey="carryOver" fill="#f59e0b" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-6">
+            <h3 className="font-display text-lg">Completion rate by sprint</h3>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={sprintChartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="sprint" />
+                  <YAxis unit="%" />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="completionRate" stroke="#2563eb" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardContent className="space-y-3 p-6">
+            <h3 className="font-display text-lg">User comparison (tickets and QA transitions)</h3>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={userAggregateData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="userName" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="tickets" fill="#6366f1" />
+                  <Bar dataKey="qaDone" fill="#10b981" />
+                  <Bar dataKey="qaRejected" fill="#ef4444" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-6">
+            <h3 className="font-display text-lg">Tracked time by user (hours)</h3>
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={userAggregateData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="userName" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="trackedHours" fill="#0ea5e9" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardContent className="space-y-4 p-6">
