@@ -121,7 +121,10 @@ export async function searchIssues(
 
 export async function countIssues(config: JiraConnectionConfig, jql: string): Promise<number> {
   const result = await searchIssues(config, jql, ['key']);
-  return result.total || 0;
+  if (typeof result.total === 'number' && Number.isFinite(result.total)) {
+    return result.total;
+  }
+  return Array.isArray(result.issues) ? result.issues.length : 0;
 }
 
 export async function sumIssueTimespent(config: JiraConnectionConfig, jql: string): Promise<number> {
