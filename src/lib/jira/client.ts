@@ -30,7 +30,20 @@ function authHeader(email: string, token: string) {
 }
 
 function normalizeSiteUrl(siteUrl: string) {
-  return siteUrl.replace(/\/+$/, '');
+  let value = siteUrl.trim();
+  value = value.replace(/\/+$/, '');
+
+  // Accept accidentally pasted Jira paths and keep only origin.
+  try {
+    const parsed = new URL(value);
+    value = `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    // Keep original if URL parsing fails; caller validation handles invalid values.
+  }
+
+  // Common typo: trailing dot in host (e.g. atlassian.net.)
+  value = value.replace(/\.$/, '');
+  return value;
 }
 
 async function jiraFetch<T>(
@@ -74,16 +87,36 @@ export async function searchIssues(
   jql: string,
   fields: string[] = ['key']
 ): Promise<JiraSearchResponse> {
-  const fieldList = fields.join(',');
-  return jiraFetch<JiraSearchResponse>(config, `/rest/api/3/search`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jql,
-      fields: fieldList ? fields : ['key'],
-      maxResults: 1000,
-    }),
-  });
+  const selectedFields = fields.length > 0 ? fields : ['key'];
+
+  // Atlassian removed /rest/api/3/search on some tenants. Prefer the new endpoint.
+  try {
+    return await jiraFetch<JiraSearchResponse>(config, `/rest/api/3/search/jql`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jql,
+        fields: selectedFields,
+        maxResults: 1000,
+      }),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (!message.includes('(404)') && !message.includes('(410)')) {
+      throw error;
+    }
+
+    // Backward compatibility for older Jira tenants that still support /search.
+    return jiraFetch<JiraSearchResponse>(config, `/rest/api/3/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jql,
+        fields: selectedFields,
+        maxResults: 1000,
+      }),
+    });
+  }
 }
 
 export async function countIssues(config: JiraConnectionConfig, jql: string): Promise<number> {

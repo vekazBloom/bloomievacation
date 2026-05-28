@@ -4,11 +4,30 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { getAuthedProfile } from '@/lib/jira/service';
 
 const payloadSchema = z.object({
-  siteUrl: z.string().url(),
-  projectKey: z.string().min(1),
+  siteUrl: z
+    .string()
+    .min(1)
+    .transform((value) => {
+      const trimmed = value.trim().replace(/\.$/, '');
+      try {
+        const parsed = new URL(trimmed);
+        return `${parsed.protocol}//${parsed.host}`.replace(/\.$/, '');
+      } catch {
+        return trimmed;
+      }
+    })
+    .refine((value) => {
+      try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'https:';
+      } catch {
+        return false;
+      }
+    }, 'Invalid siteUrl'),
+  projectKey: z.string().min(1).transform((value) => value.trim().toUpperCase()),
   boardId: z.number().int().positive(),
-  jiraEmail: z.string().email(),
-  jiraApiToken: z.string().min(10),
+  jiraEmail: z.string().email().transform((value) => value.trim().toLowerCase()),
+  jiraApiToken: z.string().min(10).transform((value) => value.trim()),
 });
 
 export const dynamic = 'force-dynamic';
