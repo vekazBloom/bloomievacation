@@ -25,6 +25,11 @@ export type JiraSprint = {
   completeDate?: string;
 };
 
+type JiraWorklog = {
+  started: string;
+  timeSpentSeconds: number;
+};
+
 function authHeader(email: string, token: string) {
   return `Basic ${Buffer.from(`${email}:${token}`).toString('base64')}`;
 }
@@ -138,4 +143,33 @@ export async function listIssueKeys(config: JiraConnectionConfig, jql: string): 
   const result = await searchIssues(config, jql, ['key']);
   const keys = (result.issues || []).map((issue) => issue.key).filter(Boolean);
   return Array.from(new Set(keys));
+}
+
+export async function getIssueWorklogs(config: JiraConnectionConfig, issueKey: string): Promise<JiraWorklog[]> {
+  let startAt = 0;
+  const maxResults = 100;
+  const all: JiraWorklog[] = [];
+
+  while (true) {
+    const result = await jiraFetch<{
+      worklogs?: JiraWorklog[];
+      total?: number;
+      maxResults?: number;
+      startAt?: number;
+    }>(
+      config,
+      `/rest/api/3/issue/${encodeURIComponent(issueKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`
+    );
+
+    const batch = result.worklogs || [];
+    all.push(...batch);
+
+    const total = Number(result.total || 0);
+    if (!Number.isFinite(total) || all.length >= total || batch.length === 0) {
+      break;
+    }
+    startAt += maxResults;
+  }
+
+  return all;
 }

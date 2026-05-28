@@ -2,6 +2,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import {
   countIssues,
   getBoardSprints,
+  getIssueWorklogs,
   getSprint,
   listIssueKeys,
   sumIssueTimespent,
@@ -57,6 +58,61 @@ function normalizeRequestedUserIds(
   }
   if (!requested || requested.length === 0) return null;
   return dedupeIds(requested);
+}
+
+function formatIsoDateForJql(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+async function sumTrackedTimeForSprintWindow({
+  config,
+  projectKey,
+  sprintId,
+  jiraAccountId,
+  sprintStart,
+  sprintEnd,
+  fallbackJql,
+}: {
+  config: JiraConnectionConfig;
+  projectKey: string;
+  sprintId: number;
+  jiraAccountId: string;
+  sprintStart: string | null | undefined;
+  sprintEnd: string | null | undefined;
+  fallbackJql: string;
+}) {
+  const startDate = formatIsoDateForJql(sprintStart);
+  const endDate = formatIsoDateForJql(sprintEnd);
+  if (!startDate || !endDate) {
+    return sumIssueTimespent(config, `${fallbackJql} AND timespent > 0`);
+  }
+
+  const issueKeys = await listIssueKeys(
+    config,
+    `project = "${projectKey}" AND sprint = ${sprintId} AND assignee = ${jiraAccountId} AND worklogDate >= "${startDate}" AND worklogDate <= "${endDate}"`
+  );
+  if (issueKeys.length === 0) return 0;
+
+  const startMs = new Date(`${startDate}T00:00:00.000Z`).getTime();
+  const endMs = new Date(`${endDate}T23:59:59.999Z`).getTime();
+
+  const worklogsPerIssue = await Promise.all(
+    issueKeys.map((issueKey) => getIssueWorklogs(config, issueKey))
+  );
+
+  let totalSeconds = 0;
+  for (const worklogs of worklogsPerIssue) {
+    for (const log of worklogs) {
+      const startedMs = new Date(log.started).getTime();
+      if (!Number.isNaN(startedMs) && startedMs >= startMs && startedMs <= endMs) {
+        totalSeconds += Number(log.timeSpentSeconds || 0);
+      }
+    }
+  }
+  return totalSeconds;
 }
 
 export async function getAuthedProfile() {
@@ -245,6 +301,7 @@ export async function syncSprintMetrics({
 
   for (const mapping of mappings) {
     const assigneeJql = `${baseJql} AND assignee = ${mapping.jira_account_id}`;
+    const sprintEndForWindow = sprint.endDate || sprint.completeDate || null;
     const [issueCount, qaReadyToDoneCount, qaReadyToRejectedCount, trackedTimeSeconds, doneKeys, rejectedKeys] =
       await Promise.all([
         countIssues(config, assigneeJql),
@@ -256,7 +313,15 @@ export async function syncSprintMetrics({
           config,
           `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`
         ),
-        sumIssueTimespent(config, `${assigneeJql} AND timespent > 0`),
+        sumTrackedTimeForSprintWindow({
+          config,
+          projectKey: config.projectKey,
+          sprintId,
+          jiraAccountId: mapping.jira_account_id,
+          sprintStart: sprint.startDate || null,
+          sprintEnd: sprintEndForWindow,
+          fallbackJql: assigneeJql,
+        }),
         listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "Done"`),
         listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`),
       ]);
