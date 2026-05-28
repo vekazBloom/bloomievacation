@@ -194,7 +194,7 @@ export async function syncSprintMetrics({
 
   const sprint = await getSprint(config, sprintId);
   const baseJql = `project = "${config.projectKey}" AND sprint = ${sprintId}`;
-  const doneTransitionJql = `${baseJql} AND status CHANGED TO "DONE"`;
+  const doneTransitionJql = `${baseJql} AND status CHANGED TO "Done"`;
 
   const [scopeTotal, todoTotal, qaReadyTotal, qaRejectedTotal, doneTotal, completedTotal] =
     await Promise.all([
@@ -202,7 +202,7 @@ export async function syncSprintMetrics({
       countIssues(config, `${baseJql} AND status = "To Do"`),
       countIssues(config, `${baseJql} AND status = "QA READY"`),
       countIssues(config, `${baseJql} AND status = "QA REJECTED"`),
-      countIssues(config, `${baseJql} AND status = "DONE"`),
+      countIssues(config, `${baseJql} AND status = "Done"`),
       countIssues(config, doneTransitionJql),
     ]);
 
@@ -250,14 +250,14 @@ export async function syncSprintMetrics({
         countIssues(config, assigneeJql),
         countIssues(
           config,
-          `${assigneeJql} AND status CHANGED FROM "QA READY" TO "DONE"`
+          `${assigneeJql} AND status CHANGED FROM "QA READY" TO "Done"`
         ),
         countIssues(
           config,
           `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`
         ),
-        sumIssueTimespent(config, assigneeJql),
-        listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "DONE"`),
+        sumIssueTimespent(config, `${assigneeJql} AND timespent > 0`),
+        listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "Done"`),
         listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`),
       ]);
 

@@ -357,6 +357,28 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
         </CardContent>
       </Card>
 
+      <Card>
+        <CardContent className="space-y-4 p-6">
+          <h2 className="font-display text-lg">Sprint Snapshot</h2>
+          {!snapshot ? (
+            <p className="text-sm text-muted-foreground">
+              {loadingAnalytics ? 'Loading...' : 'No snapshot yet for this sprint. Run SYNC first.'}
+            </p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard label="Scope" value={snapshot.scope_total} />
+              <MetricCard label="Completed" value={snapshot.completed_total} />
+              <MetricCard label="Carry-over" value={snapshot.carry_over_total} />
+              <MetricCard label="Completion rate" value={`${Math.round(Number(snapshot.completion_rate || 0) * 100)}%`} />
+              <MetricCard label="To Do" value={snapshot.todo_total} />
+              <MetricCard label="QA READY" value={snapshot.qa_ready_total} />
+              <MetricCard label="QA REJECTED" value={snapshot.qa_rejected_total} />
+              <MetricCard label="DONE" value={snapshot.done_total} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardContent className="space-y-3 p-6">
@@ -436,28 +458,6 @@ export function JiraAnalyticsClient({ isSystemAdmin }: { isSystemAdmin: boolean 
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <h2 className="font-display text-lg">Sprint Snapshot</h2>
-          {!snapshot ? (
-            <p className="text-sm text-muted-foreground">
-              {loadingAnalytics ? 'Loading...' : 'No snapshot yet for this sprint. Run SYNC first.'}
-            </p>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard label="Scope" value={snapshot.scope_total} />
-              <MetricCard label="Completed" value={snapshot.completed_total} />
-              <MetricCard label="Carry-over" value={snapshot.carry_over_total} />
-              <MetricCard label="Completion rate" value={`${Math.round(Number(snapshot.completion_rate || 0) * 100)}%`} />
-              <MetricCard label="To Do" value={snapshot.todo_total} />
-              <MetricCard label="QA READY" value={snapshot.qa_ready_total} />
-              <MetricCard label="QA REJECTED" value={snapshot.qa_rejected_total} />
-              <MetricCard label="DONE" value={snapshot.done_total} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardContent className="space-y-4 p-6">
