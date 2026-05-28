@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   if (!auth) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
   const sprintIds = parseSprintIds(request.nextUrl.searchParams.get('sprintIds'));
+  const boardId = Number(request.nextUrl.searchParams.get('boardId'));
   if (sprintIds.length < 2) {
     return NextResponse.json({ error: 'Select at least two sprints' }, { status: 400 });
   }
@@ -30,6 +31,7 @@ export async function GET(request: NextRequest) {
   const data = await getSprintComparisonData({
     sprintIds,
     profile: { id: auth.user.id, is_system_admin: auth.profile.is_system_admin },
+    requestedBoardId: Number.isInteger(boardId) && boardId > 0 ? boardId : null,
   });
 
   return NextResponse.json(data);

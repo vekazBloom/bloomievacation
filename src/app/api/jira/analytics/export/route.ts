@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
 
   const sprintIds = parseNumberList(request.nextUrl.searchParams.get('sprintIds'));
   const requestedUserIds = parseStringList(request.nextUrl.searchParams.get('userIds'));
+  const boardId = Number(request.nextUrl.searchParams.get('boardId'));
 
   if (sprintIds.length < 1) {
     return NextResponse.json({ error: 'At least one sprint is required' }, { status: 400 });
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest) {
     sprintIds,
     requestedUserIds,
     profile: { id: auth.user.id, is_system_admin: auth.profile.is_system_admin },
+    requestedBoardId: Number.isInteger(boardId) && boardId > 0 ? boardId : null,
   });
 
   const headers = [

@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldCheck,
   UserX,
+  Link2,
   Plus,
   CalendarPlus,
   MailPlus,
@@ -64,6 +65,7 @@ export function Sidebar({
   ];
 
   const adminItems = [
+    { href: '/admin/jira-settings', label: 'Jira settings', icon: Link2 },
     { href: '/admin/holidays', label: 'Holidays', icon: ShieldCheck },
     { href: '/admin/users-without-projects', label: 'Users without projects', icon: UserX },
   ];

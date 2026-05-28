@@ -26,6 +26,7 @@ type SnapshotTotals = {
 };
 
 type ProfileScope = { id: string; is_system_admin: boolean };
+type JiraBoardConfig = { boardId: number; projectKey: string; label?: string | null };
 
 type UserRow = {
   id: string;
@@ -70,17 +71,73 @@ export async function getJiraConnection(): Promise<JiraConnectionConfig | null> 
   const service = createServiceClient() as any;
   const { data, error } = await service
     .from('jira_connections')
-    .select('site_url, jira_email, jira_api_token, project_key, board_id')
+    .select('site_url, jira_email, jira_api_token, project_key, board_id, default_board_id, board_configs')
     .limit(1)
     .maybeSingle();
 
   if (error || !data) return null;
+  const boardConfigs = ((data.board_configs || []) as JiraBoardConfig[]).filter(
+    (row) => row && Number.isInteger(Number(row.boardId)) && typeof row.projectKey === 'string'
+  );
+  const defaultBoardId = Number(data.default_board_id || data.board_id);
+  const defaultBoardConfig =
+    boardConfigs.find((row) => Number(row.boardId) === defaultBoardId) || null;
+
   return {
     siteUrl: data.site_url,
     jiraEmail: data.jira_email,
     jiraApiToken: data.jira_api_token,
-    projectKey: data.project_key,
-    boardId: Number(data.board_id),
+    projectKey: defaultBoardConfig?.projectKey || data.project_key,
+    boardId: defaultBoardId,
+  };
+}
+
+export async function getRawJiraConnection() {
+  const service = createServiceClient() as any;
+  const { data, error } = await service
+    .from('jira_connections')
+    .select(
+      'id, site_url, jira_email, jira_api_token, project_key, board_id, default_board_id, board_configs'
+    )
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data;
+}
+
+export async function resolveJiraConnectionForProfile({
+  profile,
+  requestedBoardId,
+}: {
+  profile: ProfileScope;
+  requestedBoardId?: number | null;
+}): Promise<JiraConnectionConfig | null> {
+  const raw = await getRawJiraConnection();
+  if (!raw) return null;
+
+  const configs = ((raw.board_configs || []) as JiraBoardConfig[]).filter(
+    (row) => row && Number.isInteger(Number(row.boardId)) && typeof row.projectKey === 'string'
+  );
+
+  const defaultBoardId = Number(raw.default_board_id || raw.board_id);
+  const allowedBoardIds = configs.map((row) => Number(row.boardId));
+  const effectiveBoardId =
+    profile.is_system_admin &&
+    requestedBoardId &&
+    Number.isInteger(requestedBoardId) &&
+    requestedBoardId > 0 &&
+    (allowedBoardIds.length === 0 || allowedBoardIds.includes(requestedBoardId))
+      ? requestedBoardId
+      : defaultBoardId;
+
+  const selected = configs.find((row) => Number(row.boardId) === effectiveBoardId) || null;
+
+  return {
+    siteUrl: raw.site_url,
+    jiraEmail: raw.jira_email,
+    jiraApiToken: raw.jira_api_token,
+    projectKey: selected?.projectKey || raw.project_key,
+    boardId: effectiveBoardId,
   };
 }
 
@@ -96,11 +153,15 @@ export async function getJiraUserMappings(): Promise<MappingRow[]> {
 export async function syncSprintMetrics({
   sprintId,
   syncedBy,
+  profile,
+  requestedBoardId,
 }: {
   sprintId: number;
   syncedBy: string;
+  profile: ProfileScope;
+  requestedBoardId?: number | null;
 }) {
-  const config = await getJiraConnection();
+  const config = await resolveJiraConnectionForProfile({ profile, requestedBoardId });
   if (!config) {
     throw new Error('Jira connection is not configured yet.');
   }
@@ -200,9 +261,13 @@ export async function syncSprintMetrics({
   return snapshot;
 }
 
-export async function getUserSprintMetrics(sprintId: number, profile: { id: string; is_system_admin: boolean }) {
+export async function getUserSprintMetrics(
+  sprintId: number,
+  profile: { id: string; is_system_admin: boolean },
+  requestedBoardId?: number | null
+) {
   const service = createServiceClient() as any;
-  const config = await getJiraConnection();
+  const config = await resolveJiraConnectionForProfile({ profile, requestedBoardId });
   if (!config) return { snapshot: null, userMetrics: [] as any[] };
 
   const { data: snapshot } = await service
@@ -243,8 +308,14 @@ export async function getUserSprintMetrics(sprintId: number, profile: { id: stri
   return { snapshot, userMetrics: merged };
 }
 
-export async function listBoardSprintsWithSync(profile: ProfileScope) {
-  const config = await getJiraConnection();
+export async function listBoardSprintsWithSync({
+  profile,
+  requestedBoardId,
+}: {
+  profile: ProfileScope;
+  requestedBoardId?: number | null;
+}) {
+  const config = await resolveJiraConnectionForProfile({ profile, requestedBoardId });
   if (!config) return [];
   const sprints = await getBoardSprints(config);
   const service = createServiceClient() as any;
@@ -290,11 +361,13 @@ async function fetchUsersByIds(service: any, userIds: string[]) {
 export async function getSprintComparisonData({
   sprintIds,
   profile,
+  requestedBoardId,
 }: {
   sprintIds: number[];
   profile: ProfileScope;
+  requestedBoardId?: number | null;
 }) {
-  const config = await getJiraConnection();
+  const config = await resolveJiraConnectionForProfile({ profile, requestedBoardId });
   if (!config) return { snapshots: [], userTotals: [] as any[] };
   const service = createServiceClient() as any;
 
@@ -344,12 +417,14 @@ export async function getUserComparisonData({
   sprintIds,
   requestedUserIds,
   profile,
+  requestedBoardId,
 }: {
   sprintIds: number[];
   requestedUserIds?: string[];
   profile: ProfileScope;
+  requestedBoardId?: number | null;
 }) {
-  const config = await getJiraConnection();
+  const config = await resolveJiraConnectionForProfile({ profile, requestedBoardId });
   if (!config) return { rows: [] as any[] };
   const service = createServiceClient() as any;
 

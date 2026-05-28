@@ -4,6 +4,7 @@ import { getAuthedProfile, syncSprintMetrics } from '@/lib/jira/service';
 
 const payloadSchema = z.object({
   sprintId: z.number().int().positive(),
+  boardId: z.number().int().positive().optional(),
 });
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +25,8 @@ export async function POST(request: NextRequest) {
     const snapshot = await syncSprintMetrics({
       sprintId: parsed.data.sprintId,
       syncedBy: auth.user.id,
+      profile: { id: auth.user.id, is_system_admin: auth.profile.is_system_admin },
+      requestedBoardId: parsed.data.boardId ?? null,
     });
     return NextResponse.json({ snapshot });
   } catch (error) {

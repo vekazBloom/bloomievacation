@@ -27,7 +27,17 @@ const payloadSchema = z.object({
   projectKey: z.string().min(1).transform((value) => value.trim().toUpperCase()),
   boardId: z.number().int().positive(),
   jiraEmail: z.string().email().transform((value) => value.trim().toLowerCase()),
-  jiraApiToken: z.string().min(10).transform((value) => value.trim()),
+  jiraApiToken: z.string().min(10).transform((value) => value.trim()).optional(),
+  defaultBoardId: z.number().int().positive().optional(),
+  boardConfigs: z
+    .array(
+      z.object({
+        boardId: z.number().int().positive(),
+        projectKey: z.string().min(1).transform((value) => value.trim().toUpperCase()),
+        label: z.string().trim().optional(),
+      })
+    )
+    .optional(),
 });
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +52,7 @@ export async function GET() {
   const service = createServiceClient() as any;
   const { data, error } = await service
     .from('jira_connections')
-    .select('site_url, project_key, board_id, jira_email')
+    .select('site_url, project_key, board_id, jira_email, default_board_id, board_configs')
     .limit(1)
     .maybeSingle();
 
@@ -55,6 +65,8 @@ export async function GET() {
           projectKey: data.project_key,
           boardId: data.board_id,
           jiraEmail: data.jira_email,
+          defaultBoardId: data.default_board_id || data.board_id,
+          boardConfigs: data.board_configs || [],
         }
       : null,
   });
@@ -74,15 +86,32 @@ export async function PATCH(request: NextRequest) {
 
   const service = createServiceClient() as any;
   const { data: existing } = await service.from('jira_connections').select('id').limit(1).maybeSingle();
+  if (!existing?.id && !parsed.data.jiraApiToken) {
+    return NextResponse.json({ error: 'jiraApiToken is required for first-time setup' }, { status: 400 });
+  }
 
   const payload = {
     site_url: parsed.data.siteUrl,
     project_key: parsed.data.projectKey,
     board_id: parsed.data.boardId,
     jira_email: parsed.data.jiraEmail,
-    jira_api_token: parsed.data.jiraApiToken,
+    default_board_id: parsed.data.defaultBoardId ?? parsed.data.boardId,
+    board_configs:
+      parsed.data.boardConfigs && parsed.data.boardConfigs.length > 0
+        ? parsed.data.boardConfigs
+        : [
+            {
+              boardId: parsed.data.boardId,
+              projectKey: parsed.data.projectKey,
+              label: `${parsed.data.projectKey} board ${parsed.data.boardId}`,
+            },
+          ],
     created_by: auth.user.id,
   };
+
+  if (parsed.data.jiraApiToken) {
+    (payload as any).jira_api_token = parsed.data.jiraApiToken;
+  }
 
   const { error } = existing?.id
     ? await service.from('jira_connections').update(payload).eq('id', existing.id)
