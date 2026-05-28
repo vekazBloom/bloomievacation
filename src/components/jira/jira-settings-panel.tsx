@@ -15,7 +15,7 @@ type Mapping = {
   jira_display_name: string | null;
 };
 
-type BoardConfig = { boardId: string; projectKey: string; label?: string };
+type BoardConfig = { rowId: string; boardId: string; projectKey: string; label?: string };
 
 export function JiraSettingsPanel() {
   const [siteUrl, setSiteUrl] = useState('');
@@ -54,6 +54,7 @@ export function JiraSettingsPanel() {
       setDefaultBoardId(String(configPayload.config.defaultBoardId || configPayload.config.boardId || ''));
       setBoardConfigs(
         (configPayload.config.boardConfigs || []).map((row: any) => ({
+          rowId: crypto.randomUUID(),
           boardId: String(row.boardId ?? ''),
           projectKey: String(row.projectKey || ''),
           label: row.label ? String(row.label) : '',
@@ -159,7 +160,15 @@ export function JiraSettingsPanel() {
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  setBoardConfigs((rows) => [...rows, { boardId: '', projectKey: projectKey || 'GO', label: '' }])
+                  setBoardConfigs((rows) => [
+                    ...rows,
+                    {
+                      rowId: crypto.randomUUID(),
+                      boardId: '',
+                      projectKey: projectKey || 'GO',
+                      label: '',
+                    },
+                  ])
                 }
               >
                 Add board
@@ -170,14 +179,17 @@ export function JiraSettingsPanel() {
                 <p className="text-sm text-muted-foreground">No boards configured yet.</p>
               ) : (
                 boardConfigs.map((row, idx) => (
-                  <div key={idx} className="grid gap-2 md:grid-cols-4">
+                  <div key={row.rowId} className="grid gap-2 md:grid-cols-4">
                     <Input
+                      type="text"
+                      inputMode="numeric"
                       placeholder="Board ID"
                       value={row.boardId}
                       onChange={(e) => {
+                        const nextValue = e.target.value.replace(/[^\d]/g, '');
                         setBoardConfigs((rows) =>
                           rows.map((item, itemIdx) =>
-                            itemIdx === idx ? { ...item, boardId: e.target.value } : item
+                            itemIdx === idx ? { ...item, boardId: nextValue } : item
                           )
                         );
                       }}
