@@ -1,4 +1,6 @@
+import { unstable_cache } from 'next/cache';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { USER_PROFILE_CACHE_TAG } from '@/lib/auth/dashboard';
 import {
   countIssues,
   getBoardSprints,
@@ -123,11 +125,19 @@ export async function getAuthedProfile() {
   } = await supabase.auth.getUser();
   if (authError || !user) return null;
 
-  const { data: profile } = await supabase
-    .from('users')
-    .select('id, email, is_system_admin')
-    .eq('id', user.id)
-    .maybeSingle();
+  // Reuse the same per-user cache as getDashboardSession so a single request
+  // that hits both the dashboard layout and a Jira API route only reads the
+  // profile row once.
+  const { data: profile } = await unstable_cache(
+    async () =>
+      supabase
+        .from('users')
+        .select('id, email, is_system_admin')
+        .eq('id', user.id)
+        .maybeSingle(),
+    [`user-profile-jira-${user.id}`],
+    { revalidate: 60, tags: [USER_PROFILE_CACHE_TAG, `user-profile-${user.id}`] }
+  )();
 
   if (!profile) return null;
   return { user, profile };
@@ -299,43 +309,38 @@ export async function syncSprintMetrics({
     { onConflict: 'board_id,sprint_id' }
   );
 
-  for (const mapping of mappings) {
-    const assigneeJql = `${baseJql} AND assignee = ${mapping.jira_account_id}`;
-    const sprintEndForWindow = sprint.endDate || sprint.completeDate || null;
-    const [issueCount, qaReadyToDoneCount, qaReadyToRejectedCount, trackedTimeSeconds, doneKeys, rejectedKeys] =
-      await Promise.all([
-        countIssues(config, assigneeJql),
-        countIssues(
-          config,
-          `${assigneeJql} AND status CHANGED FROM "QA READY" TO "Done"`
-        ),
-        countIssues(
-          config,
-          `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`
-        ),
-        sumTrackedTimeForSprintWindow({
-          config,
-          projectKey: config.projectKey,
-          sprintId,
-          jiraAccountId: mapping.jira_account_id,
-          sprintStart: sprint.startDate || null,
-          sprintEnd: sprintEndForWindow,
-          fallbackJql: assigneeJql,
-        }),
-        listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "Done"`),
-        listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`),
-      ]);
+  // Fetch all per-user metrics in parallel, then batch-upsert in one DB call.
+  const sprintEndForWindow = sprint.endDate || sprint.completeDate || null;
+  const userMetricRecords = await Promise.all(
+    mappings.map(async (mapping) => {
+      const assigneeJql = `${baseJql} AND assignee = ${mapping.jira_account_id}`;
+      const [issueCount, qaReadyToDoneCount, qaReadyToRejectedCount, trackedTimeSeconds, doneKeys, rejectedKeys] =
+        await Promise.all([
+          countIssues(config, assigneeJql),
+          countIssues(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "Done"`),
+          countIssues(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`),
+          sumTrackedTimeForSprintWindow({
+            config,
+            projectKey: config.projectKey,
+            sprintId,
+            jiraAccountId: mapping.jira_account_id,
+            sprintStart: sprint.startDate || null,
+            sprintEnd: sprintEndForWindow,
+            fallbackJql: assigneeJql,
+          }),
+          listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "Done"`),
+          listIssueKeys(config, `${assigneeJql} AND status CHANGED FROM "QA READY" TO "QA REJECTED"`),
+        ]);
 
-    const doneSet = new Set(doneKeys);
-    const rejectedSet = new Set(rejectedKeys);
-    let bothTransitionsCount = 0;
-    for (const key of doneSet) {
-      if (rejectedSet.has(key)) bothTransitionsCount += 1;
-    }
-    const doneOnlyCount = Math.max(0, doneSet.size - bothTransitionsCount);
+      const doneSet = new Set(doneKeys);
+      const rejectedSet = new Set(rejectedKeys);
+      let bothTransitionsCount = 0;
+      for (const key of doneSet) {
+        if (rejectedSet.has(key)) bothTransitionsCount += 1;
+      }
+      const doneOnlyCount = Math.max(0, doneSet.size - bothTransitionsCount);
 
-    await service.from('jira_sprint_user_metrics').upsert(
-      {
+      return {
         board_id: config.boardId,
         sprint_id: sprint.id,
         app_user_id: mapping.app_user_id,
@@ -347,9 +352,14 @@ export async function syncSprintMetrics({
         qa_ready_done_only_count: doneOnlyCount,
         qa_ready_both_transitions_count: bothTransitionsCount,
         tracked_time_seconds: trackedTimeSeconds,
-      },
-      { onConflict: 'board_id,sprint_id,app_user_id' }
-    );
+      };
+    })
+  );
+
+  if (userMetricRecords.length > 0) {
+    await service
+      .from('jira_sprint_user_metrics')
+      .upsert(userMetricRecords, { onConflict: 'board_id,sprint_id,app_user_id' });
   }
 
   const { data: snapshot } = await service
