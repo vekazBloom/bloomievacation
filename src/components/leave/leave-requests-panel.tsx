@@ -251,8 +251,9 @@ export function LeaveRequestsPanel({
         ) : (
           requests.map((request) => {
             const canCancel =
-              request.status === 'pending' &&
-              (!currentUserId || request.user_id === currentUserId);
+              Boolean(currentUserId) &&
+              request.user_id === currentUserId &&
+              (request.status === 'pending' || request.status === 'approved');
             const canEdit =
               request.status === 'pending' &&
               currentUserId &&

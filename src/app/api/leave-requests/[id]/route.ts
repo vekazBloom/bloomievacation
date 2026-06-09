@@ -199,6 +199,10 @@ export async function PATCH(
   if (parsed.data.action === 'cancel') {
     if (!isOwner && !canReview) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+    if (existing.status !== 'pending' && existing.status !== 'approved') {
+      return NextResponse.json({ error: 'Only pending or approved requests can be cancelled' }, { status: 400 });
+    }
+
     await supabase.from('leave_request_grant_allocations').delete().eq('leave_request_id', params.id);
 
     const { data, error } = await supabase
