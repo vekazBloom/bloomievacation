@@ -251,11 +251,6 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
   const newHistory: ChatMessage[] = [...history];
 
   for (let step = 0; step < 5 && assistantMessage?.tool_calls?.length; step += 1) {
-    newHistory.push({
-      role: 'assistant',
-      content: assistantMessage.content || '',
-    });
-
     openAiMessages.push({
       role: 'assistant',
       content: assistantMessage.content,
@@ -266,13 +261,6 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
       const args = JSON.parse(toolCall.function.arguments || '{}') as Record<string, unknown>;
       const result = await executeBotTool(ctx, toolCall.function.name, args);
       const resultText = JSON.stringify(result);
-
-      newHistory.push({
-        role: 'tool',
-        content: resultText,
-        tool_call_id: toolCall.id,
-        name: toolCall.function.name,
-      });
 
       openAiMessages.push({
         role: 'tool',

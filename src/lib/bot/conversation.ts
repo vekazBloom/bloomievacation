@@ -33,6 +33,16 @@ export type PendingBotAction = PendingLeaveRequest | PendingLeaveReview;
 
 const MAX_MESSAGES = 24;
 
+/** OpenAI chat history must not include orphaned tool messages across turns. */
+export function persistentMessagesOnly(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter(
+    (m) =>
+      (m.role === 'user' || m.role === 'assistant') &&
+      typeof m.content === 'string' &&
+      m.content.trim().length > 0
+  );
+}
+
 function normalizePending(raw: unknown): PendingBotAction | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
@@ -56,7 +66,7 @@ export async function loadConversation(chatId: string) {
   const pending = normalizePending(data?.pending_request);
 
   return {
-    messages: (data?.messages as ChatMessage[] | null) ?? [],
+    messages: persistentMessagesOnly((data?.messages as ChatMessage[] | null) ?? []),
     pendingAction: pending,
     /** @deprecated use pendingAction */
     pendingRequest: pending?.kind === 'leave_request' ? pending : null,
@@ -69,7 +79,7 @@ export async function saveConversation(
   pendingAction: PendingBotAction | null
 ) {
   const supabase = createServiceClient();
-  const trimmed = messages.slice(-MAX_MESSAGES);
+  const trimmed = persistentMessagesOnly(messages).slice(-MAX_MESSAGES);
   await supabase.from('bot_conversations').upsert(
     {
       telegram_chat_id: chatId,
