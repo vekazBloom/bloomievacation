@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { ChatWidget } from '@/components/chat/chat-widget';
 import { Sidebar } from '@/components/layout/sidebar';
 import { SessionInvitationSync } from '@/components/layout/session-invitation-sync';
 import { TopBar } from '@/components/layout/top-bar';
@@ -68,6 +69,7 @@ export function DashboardShell({
         />
         <main className="flex-1 overflow-y-auto p-6 lg:p-8">{children}</main>
       </div>
+      <ChatWidget userId={profile.id} userName={profile.name} />
     </div>
   );
 }
