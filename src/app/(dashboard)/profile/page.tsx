@@ -1,4 +1,5 @@
 import { ReligiousSelectionForm } from '@/components/profile/religious-selection-form';
+import { PhoneForm } from '@/components/profile/phone-form';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { RemoteImage } from '@/components/ui/remote-image';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,6 +22,12 @@ export default async function ProfilePage() {
     const project = Array.isArray(membership.projects) ? membership.projects[0] : membership.projects;
     return Boolean(project?.id && !project?.is_archived);
   });
+
+  const { data: profileRow } = await supabase
+    .from('users')
+    .select('phone_number')
+    .eq('id', user.id)
+    .maybeSingle();
 
   const year = new Date().getFullYear();
   const { data: religiousHolidays } = await supabase
@@ -75,6 +82,21 @@ export default async function ProfilePage() {
               )}
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="font-display text-lg">Telegram bot</h2>
+          <p className="text-sm text-muted-foreground">
+            Povežite račun za slanje zahtjeva za godišnji odmor putem Telegrama.
+          </p>
+        </div>
+        <CardContent className="p-6">
+          <PhoneForm
+            initialPhone={profileRow?.phone_number ?? null}
+            botUsername={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? null}
+          />
         </CardContent>
       </Card>
 

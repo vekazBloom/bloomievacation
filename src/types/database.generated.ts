@@ -794,6 +794,62 @@ export type Database = {
           },
         ]
       }
+      bot_conversations: {
+        Row: {
+          messages: Json
+          pending_request: Json | null
+          telegram_chat_id: string
+          updated_at: string
+        }
+        Insert: {
+          messages?: Json
+          pending_request?: Json | null
+          telegram_chat_id: string
+          updated_at?: string
+        }
+        Update: {
+          messages?: Json
+          pending_request?: Json | null
+          telegram_chat_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      telegram_connections: {
+        Row: {
+          id: string
+          is_active: boolean
+          linked_at: string
+          telegram_chat_id: string
+          telegram_user_id: string | null
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          is_active?: boolean
+          linked_at?: string
+          telegram_chat_id: string
+          telegram_user_id?: string | null
+          user_id: string
+        }
+        Update: {
+          id?: string
+          is_active?: boolean
+          linked_at?: string
+          telegram_chat_id?: string
+          telegram_user_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telegram_connections_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           avatar_url: string | null
@@ -803,6 +859,7 @@ export type Database = {
           id: string
           is_system_admin: boolean | null
           name: string
+          phone_number: string | null
           updated_at: string | null
         }
         Insert: {
@@ -813,6 +870,7 @@ export type Database = {
           id: string
           is_system_admin?: boolean | null
           name: string
+          phone_number?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -823,6 +881,7 @@ export type Database = {
           id?: string
           is_system_admin?: boolean | null
           name?: string
+          phone_number?: string | null
           updated_at?: string | null
         }
         Relationships: []
