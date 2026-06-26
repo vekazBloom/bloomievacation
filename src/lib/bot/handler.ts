@@ -3,17 +3,21 @@ import {
   loadConversation,
   saveConversation,
   type ChatMessage,
+  type PendingBotAction,
   type PendingLeaveRequest,
+  type PendingLeaveReview,
 } from '@/lib/bot/conversation';
 import { BOT_TOOLS, buildBotToolContext, executeBotTool, listUserProjects } from '@/lib/bot/tools';
 import {
   createLeaveRequest,
   type CreateLeaveRequestInput,
 } from '@/lib/leave/create-request';
+import { reviewLeaveRequest } from '@/lib/leave/review-request';
 import { absoluteAppUrl } from '@/lib/email/app-url';
 import {
   answerCallbackQuery,
   confirmLeaveKeyboard,
+  confirmReviewKeyboard,
   contactRequestKeyboard,
   sendRemoveKeyboard,
   sendTelegramMessage,
@@ -52,14 +56,26 @@ type TelegramUpdate = {
 const SYSTEM_PROMPT = `Ti si asistent za BloomieVacation — sistem za zahtjeve za godišnji odmor.
 Odgovaraj na hrvatskom/bosanskom/srpskom jeziku.
 
-Pravila:
+Pravila za vlastite zahtjeve:
 - Za kreiranje zahtjeva UVIJEK prvo pozovi preview_leave_request.
 - Nikad ne šalješ zahtjev direktno — nakon uspješnog preview-a reci korisniku da potvrdi dugmetom.
 - Tipovi: annual = godišnji odmor, sick = bolovanje, religious = vjerski praznik.
 - Datume pretvori u ISO format YYYY-MM-DD. Godina je ${new Date().getFullYear()} ako korisnik ne navede.
 - Ako korisnik ima jedan projekat, koristi taj projectId bez pitanja.
 - Za bolovanje s doktorovom potvrdom uputi korisnika na web aplikaciju.
-- Budi kratak i jasan.`;
+
+Pravila za tim (svi članovi projekta):
+- Za pitanja tko je na odmoru koristi get_team_on_leave, get_team_on_leave_today ili get_team_on_leave_this_week.
+- Za postotak preklapanja tima na godišnjem koristi get_vacation_overlap.
+- Ne otkrivaj podatke projekata gdje korisnik nije član.
+- Formatiraj odgovor kao kratku listu imena i datuma (bez UUID-ova).
+
+Pravila za lead/admin:
+- Za pending zahtjeve koristi list_pending_team_requests.
+- Za odobrenje/odbijanje UVIJEK koristi preview_review_leave_request, zatim korisnik potvrđuje dugmetom.
+- Lead ne može odobriti vlastiti zahtjev.
+
+Budi kratak i jasan.`;
 
 function getOpenAIKey() {
   const key = process.env.OPENAI_API_KEY?.trim();
@@ -122,9 +138,11 @@ async function resolveProjectName(projectId: string) {
   return data?.name ?? 'Projekat';
 }
 
-async function listUserProjectsForPrompt(ctx: ReturnType<typeof buildBotToolContext>) {
+async function buildProjectContext(ctx: ReturnType<typeof buildBotToolContext>) {
   const projects = await listUserProjects(ctx);
-  return projects.filter((p): p is NonNullable<typeof p> => Boolean(p));
+  if (projects.length === 0) return '\n\nKorisnik nema aktivnih projekata.';
+  const lines = projects.map((p) => `- ${p.name} (${p.role}): ${p.projectId}`);
+  return `\n\nProjekti korisnika (koristi projectId):\n${lines.join('\n')}`;
 }
 
 export async function handleTelegramUpdate(update: TelegramUpdate) {
@@ -170,7 +188,7 @@ async function handleStart(chatId: string) {
     const name = (connection.users as { name?: string } | null)?.name ?? 'korisnik';
     await sendTelegramMessage(
       chatId,
-      `Pozdrav ${name}! Već ste povezani.\n\nMožete pisati npr:\n"Želim godišnji odmor od 14. augusta do 25. augusta"`
+      `Pozdrav ${name}! Već ste povezani.\n\nMožete pisati npr:\n"Tko je na godišnjem ovaj tjedan?"\n"Želim godišnji odmor od 14. augusta do 25. augusta"`
     );
     return;
   }
@@ -206,20 +224,16 @@ async function handleContactShare(chatId: string, phone: string, telegramUserId?
 
   await sendRemoveKeyboard(
     chatId,
-    `Povezani ste kao ${user.name}.\n\nSada možete slobodno pisati, npr:\n"Želim godišnji odmor od 14. augusta do 25. augusta"`
+    `Povezani ste kao ${user.name}.\n\nSada možete slobodno pisati, npr:\n"Tko je na godišnjem ovaj tjedan?"`
   );
 }
 
 async function handleChatMessage(chatId: string, userId: string, text: string) {
-  const { messages, pendingRequest } = await loadConversation(chatId);
+  const { messages, pendingAction } = await loadConversation(chatId);
   const history: ChatMessage[] = [...messages, { role: 'user', content: text }];
 
   const ctx = buildBotToolContext(userId);
-  const projects = await listUserProjectsForPrompt(ctx);
-  const projectContext =
-    projects.length > 0
-      ? `\n\nProjekti korisnika (koristi projectId):\n${projects.map((p) => `- ${p.name}: ${p.id}`).join('\n')}`
-      : '\n\nKorisnik nema aktivnih projekata.';
+  const projectContext = await buildProjectContext(ctx);
 
   const openAiMessages: OpenAIMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT + projectContext },
@@ -232,7 +246,8 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
   ];
 
   let assistantMessage = await callOpenAI(openAiMessages);
-  let pending: PendingLeaveRequest | null = pendingRequest;
+  let pending: PendingBotAction | null = pendingAction;
+  const previousToken = pending?.token ?? null;
   const newHistory: ChatMessage[] = [...history];
 
   for (let step = 0; step < 5 && assistantMessage?.tool_calls?.length; step += 1) {
@@ -283,10 +298,38 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
         const summary = formatPreviewSummary(preview.resolvedInput, preview, projectName);
         const token = createPendingToken();
         pending = {
+          kind: 'leave_request',
           token,
           userId,
           payload: preview.resolvedInput,
           summary,
+          createdAt: new Date().toISOString(),
+        };
+      }
+
+      if (
+        toolCall.function.name === 'preview_review_leave_request' &&
+        result &&
+        typeof result === 'object' &&
+        'ok' in result &&
+        result.ok === true
+      ) {
+        const preview = result as {
+          ok: true;
+          requestId: string;
+          action: 'approve' | 'reject';
+          decisionNote: string | null;
+          summary: string;
+        };
+        const token = createPendingToken();
+        pending = {
+          kind: 'leave_review',
+          token,
+          reviewerId: userId,
+          requestId: preview.requestId,
+          action: preview.action,
+          decisionNote: preview.decisionNote,
+          summary: preview.summary,
           createdAt: new Date().toISOString(),
         };
       }
@@ -297,14 +340,18 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
 
   const replyText =
     assistantMessage?.content?.trim() ||
-    'Nisam uspio obraditi poruku. Pokušajte ponovo s datumima i tipom odsustva.';
+    'Nisam uspio obraditi poruku. Pokušajte ponovo s jasnijim pitanjem.';
 
   newHistory.push({ role: 'assistant', content: replyText });
   await saveConversation(chatId, newHistory, pending);
 
-  if (pending && pending.token !== pendingRequest?.token) {
+  if (pending && pending.token !== previousToken) {
+    const keyboard =
+      pending.kind === 'leave_review'
+        ? confirmReviewKeyboard(pending.token)
+        : confirmLeaveKeyboard(pending.token);
     await sendTelegramMessage(chatId, `${replyText}\n\n${pending.summary}`, {
-      replyMarkup: confirmLeaveKeyboard(pending.token),
+      replyMarkup: keyboard,
     });
   } else {
     await sendTelegramMessage(chatId, replyText);
@@ -319,10 +366,10 @@ async function handleCallback(callback: NonNullable<TelegramUpdate['callback_que
   await answerCallbackQuery(callback.id);
 
   const [action, token] = data.split(':');
-  const { pendingRequest, messages } = await loadConversation(chatId);
+  const { pendingAction, messages } = await loadConversation(chatId);
 
-  if (!pendingRequest || pendingRequest.token !== token) {
-    await sendTelegramMessage(chatId, 'Zahtjev je istekao. Pošaljite novu poruku.');
+  if (!pendingAction || pendingAction.token !== token) {
+    await sendTelegramMessage(chatId, 'Akcija je istekla. Pošaljite novu poruku.');
     return;
   }
 
@@ -332,25 +379,76 @@ async function handleCallback(callback: NonNullable<TelegramUpdate['callback_que
     return;
   }
 
-  if (action === 'confirm') {
-    const connection = await getTelegramConnectionByChatId(chatId);
-    if (!connection?.user_id || connection.user_id !== pendingRequest.userId) {
-      await sendTelegramMessage(chatId, 'Niste ovlašteni za ovu akciju.');
-      return;
-    }
-
-    const ctx = buildBotToolContext(connection.user_id);
-    const result = await createLeaveRequest(ctx.supabase, connection.user_id, pendingRequest.payload);
+  if (action === 'review_cancel') {
     await saveConversation(chatId, messages, null);
-
-    if (!result.ok) {
-      await sendTelegramMessage(chatId, `Zahtjev nije poslan: ${result.error}`);
-      return;
-    }
-
-    await sendTelegramMessage(
-      chatId,
-      `✅ Zahtjev je poslan i čeka odobrenje.\n\nStatus: pending\nRadni dani: ${result.request?.working_days_count ?? '—'}`
-    );
+    await sendTelegramMessage(chatId, 'Obrada zahtjeva je otkazana.');
+    return;
   }
+
+  if (action === 'confirm' && pendingAction.kind === 'leave_request') {
+    await handleConfirmLeaveRequest(chatId, messages, pendingAction);
+    return;
+  }
+
+  if (action === 'review_confirm' && pendingAction.kind === 'leave_review') {
+    await handleConfirmLeaveReview(chatId, messages, pendingAction);
+    return;
+  }
+
+  await sendTelegramMessage(chatId, 'Nepoznata akcija.');
+}
+
+async function handleConfirmLeaveRequest(
+  chatId: string,
+  messages: ChatMessage[],
+  pending: PendingLeaveRequest
+) {
+  const connection = await getTelegramConnectionByChatId(chatId);
+  if (!connection?.user_id || connection.user_id !== pending.userId) {
+    await sendTelegramMessage(chatId, 'Niste ovlašteni za ovu akciju.');
+    return;
+  }
+
+  const ctx = buildBotToolContext(connection.user_id);
+  const result = await createLeaveRequest(ctx.supabase, connection.user_id, pending.payload);
+  await saveConversation(chatId, messages, null);
+
+  if (!result.ok) {
+    await sendTelegramMessage(chatId, `Zahtjev nije poslan: ${result.error}`);
+    return;
+  }
+
+  await sendTelegramMessage(
+    chatId,
+    `✅ Zahtjev je poslan i čeka odobrenje.\n\nStatus: pending\nRadni dani: ${result.request?.working_days_count ?? '—'}`
+  );
+}
+
+async function handleConfirmLeaveReview(
+  chatId: string,
+  messages: ChatMessage[],
+  pending: PendingLeaveReview
+) {
+  const connection = await getTelegramConnectionByChatId(chatId);
+  if (!connection?.user_id || connection.user_id !== pending.reviewerId) {
+    await sendTelegramMessage(chatId, 'Niste ovlašteni za ovu akciju.');
+    return;
+  }
+
+  const ctx = buildBotToolContext(connection.user_id);
+  const result = await reviewLeaveRequest(ctx.supabase, {
+    requestId: pending.requestId,
+    reviewerId: connection.user_id,
+    action: pending.action,
+    decisionNote: pending.decisionNote,
+  });
+  await saveConversation(chatId, messages, null);
+
+  if (!result.ok) {
+    await sendTelegramMessage(chatId, `Zahtjev nije obrađen: ${result.error}`);
+    return;
+  }
+
+  const label = pending.action === 'approve' ? 'odobren' : 'odbijen';
+  await sendTelegramMessage(chatId, `✅ Zahtjev je ${label}.`);
 }

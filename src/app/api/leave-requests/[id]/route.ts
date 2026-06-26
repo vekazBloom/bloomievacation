@@ -4,6 +4,7 @@ import {
   notifyRequestDecision,
   notifyRequestEdited,
 } from '@/lib/leave/notify';
+import { reviewLeaveRequest } from '@/lib/leave/review-request';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { canEditMemberLeaveBalances, canReviewLeave, getCurrentUser } from '@/lib/projects/access';
 import {
@@ -62,6 +63,23 @@ export async function PATCH(
   if (parsed.data.action === 'approve' || parsed.data.action === 'reject') {
     if (!canReview) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+    const allocationUpdate = parsed.data.annualAllocations;
+    const hasFundEdits =
+      Boolean(allocationUpdate?.length) || Boolean(parsed.data.balanceProjectId);
+
+    if (!hasFundEdits) {
+      const result = await reviewLeaveRequest(supabase, {
+        requestId: params.id,
+        reviewerId: user.id,
+        action: parsed.data.action,
+        decisionNote: parsed.data.decisionNote ?? null,
+      });
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({ request: result.request });
+    }
+
     const status = parsed.data.action === 'approve' ? 'approved' : 'rejected';
 
     if (status === 'rejected') {
@@ -69,7 +87,6 @@ export async function PATCH(
     }
 
     const canReallocateFunds = await canEditMemberLeaveBalances(user.id);
-    const allocationUpdate = parsed.data.annualAllocations;
     let balanceProjectUpdate: string | undefined;
 
     if (parsed.data.balanceProjectId && existing.type === 'sick') {

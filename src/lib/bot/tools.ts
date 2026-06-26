@@ -1,7 +1,17 @@
+import { getUserProjectRoles } from '@/lib/bot/permissions';
+import { previewReviewLeaveRequest } from '@/lib/bot/review-leave';
+import {
+  getTeamOnLeave,
+  getTeamOnLeaveThisWeek,
+  getTeamOnLeaveToday,
+  getVacationOverlap,
+  listPendingTeamRequests,
+} from '@/lib/bot/team-leave';
 import { createLeaveRequest, previewLeaveRequest, type CreateLeaveRequestInput } from '@/lib/leave/create-request';
 import { getUserLeaveBalance } from '@/lib/leave/global-balance';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { AppSupabase } from '@/lib/supabase/app-client';
+import type { LeaveType } from '@/types/database';
 
 export type BotToolContext = {
   userId: string;
@@ -9,18 +19,7 @@ export type BotToolContext = {
 };
 
 export async function listUserProjects(ctx: BotToolContext) {
-  const { data } = await ctx.supabase
-    .from('project_members')
-    .select('role, projects(id, name, is_archived)')
-    .eq('user_id', ctx.userId);
-
-  return (data || [])
-    .map((row) => {
-      const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
-      if (!project?.id || project.is_archived) return null;
-      return { id: project.id as string, name: project.name as string, role: row.role as string };
-    })
-    .filter(Boolean);
+  return getUserProjectRoles(ctx.supabase, ctx.userId);
 }
 
 export async function getLeaveBalanceSummary(ctx: BotToolContext) {
@@ -66,10 +65,6 @@ export async function toolPreviewLeaveRequest(ctx: BotToolContext, input: Create
   return previewLeaveRequest(ctx.supabase, ctx.userId, input);
 }
 
-export async function toolCreateLeaveRequest(ctx: BotToolContext, input: CreateLeaveRequestInput) {
-  return createLeaveRequest(ctx.supabase, ctx.userId, input);
-}
-
 export function buildBotToolContext(userId: string): BotToolContext {
   return { userId, supabase: createServiceClient() };
 }
@@ -79,7 +74,7 @@ export const BOT_TOOLS = [
     type: 'function' as const,
     function: {
       name: 'list_my_projects',
-      description: 'Lista projekata na kojima je korisnik član.',
+      description: 'Lista projekata na kojima je korisnik član, s ulogom.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
     },
   },
@@ -101,6 +96,114 @@ export const BOT_TOOLS = [
         properties: {
           limit: { type: 'number', description: 'Maksimalan broj zahtjeva (default 5)' },
         },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_team_on_leave',
+      description: 'Tko je na odmoru u timu u zadanom periodu (samo članovi projekta).',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'UUID projekta' },
+          startDate: { type: 'string', description: 'YYYY-MM-DD' },
+          endDate: { type: 'string', description: 'YYYY-MM-DD' },
+          includePending: {
+            type: 'boolean',
+            description: 'Uključi i pending zahtjeve (default false)',
+          },
+          types: {
+            type: 'array',
+            items: { type: 'string', enum: ['annual', 'sick', 'religious'] },
+            description: 'Filtriraj po tipu odsustva',
+          },
+        },
+        required: ['projectId', 'startDate', 'endDate'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_team_on_leave_today',
+      description: 'Tko je danas na odmoru u timu.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'UUID projekta' },
+          includePending: { type: 'boolean' },
+        },
+        required: ['projectId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_team_on_leave_this_week',
+      description: 'Tko je na odmoru ovaj tjedan (pon–ned) u timu.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'UUID projekta' },
+          includePending: { type: 'boolean' },
+        },
+        required: ['projectId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'get_vacation_overlap',
+      description: 'Koliko članova tima ima odobren godišnji u periodu (overlap %).',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string' },
+          startDate: { type: 'string' },
+          endDate: { type: 'string' },
+        },
+        required: ['projectId', 'startDate', 'endDate'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_pending_team_requests',
+      description: 'Pending zahtjevi koji čekaju odobrenje (samo lead/admin).',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: { type: 'string', description: 'Opcionalno filtriraj po projektu' },
+          limit: { type: 'number' },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'preview_review_leave_request',
+      description:
+        'Pripremi odobrenje ili odbijanje pending zahtjeva (samo lead/admin). Korisnik mora potvrditi dugmetom.',
+      parameters: {
+        type: 'object',
+        properties: {
+          requestId: { type: 'string', description: 'UUID zahtjeva' },
+          action: { type: 'string', enum: ['approve', 'reject'] },
+          decisionNote: { type: 'string', description: 'Opcionalna napomena' },
+        },
+        required: ['requestId', 'action'],
         additionalProperties: false,
       },
     },
@@ -139,6 +242,69 @@ export async function executeBotTool(
       return getLeaveBalanceSummary(ctx);
     case 'list_my_requests':
       return listUserLeaveRequests(ctx, typeof args.limit === 'number' ? args.limit : 5);
+    case 'get_team_on_leave':
+      return getTeamOnLeave(
+        ctx.supabase,
+        ctx.userId,
+        String(args.projectId),
+        String(args.startDate),
+        String(args.endDate),
+        {
+          includePending: args.includePending === true,
+          types: Array.isArray(args.types) ? (args.types as LeaveType[]) : undefined,
+        }
+      );
+    case 'get_team_on_leave_today': {
+      const result = await getTeamOnLeaveToday(ctx.supabase, ctx.userId, String(args.projectId));
+      if (!result.ok) return result;
+      if (args.includePending === true) {
+        return getTeamOnLeave(
+          ctx.supabase,
+          ctx.userId,
+          String(args.projectId),
+          new Date().toISOString().slice(0, 10),
+          new Date().toISOString().slice(0, 10),
+          { includePending: true }
+        );
+      }
+      return result;
+    }
+    case 'get_team_on_leave_this_week': {
+      if (args.includePending === true) {
+        const { startOfWeek, endOfWeek, format } = await import('date-fns');
+        const now = new Date();
+        return getTeamOnLeave(
+          ctx.supabase,
+          ctx.userId,
+          String(args.projectId),
+          format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+          format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+          { includePending: true }
+        );
+      }
+      return getTeamOnLeaveThisWeek(ctx.supabase, ctx.userId, String(args.projectId));
+    }
+    case 'get_vacation_overlap':
+      return getVacationOverlap(
+        ctx.supabase,
+        ctx.userId,
+        String(args.projectId),
+        String(args.startDate),
+        String(args.endDate)
+      );
+    case 'list_pending_team_requests':
+      return listPendingTeamRequests(ctx.supabase, ctx.userId, {
+        projectId: args.projectId ? String(args.projectId) : undefined,
+        limit: typeof args.limit === 'number' ? args.limit : 10,
+      });
+    case 'preview_review_leave_request':
+      return previewReviewLeaveRequest(
+        ctx.supabase,
+        ctx.userId,
+        String(args.requestId),
+        args.action as 'approve' | 'reject',
+        args.decisionNote ? String(args.decisionNote) : null
+      );
     case 'preview_leave_request':
       return toolPreviewLeaveRequest(ctx, {
         projectId: String(args.projectId),

@@ -82,6 +82,17 @@ export function confirmLeaveKeyboard(requestToken: string): TelegramInlineKeyboa
   };
 }
 
+export function confirmReviewKeyboard(reviewToken: string): TelegramInlineKeyboard {
+  return {
+    inline_keyboard: [
+      [
+        { text: '✅ Potvrdi', callback_data: `review_confirm:${reviewToken}` },
+        { text: '❌ Odustani', callback_data: `review_cancel:${reviewToken}` },
+      ],
+    ],
+  };
+}
+
 export function removeKeyboardMarkup() {
   return { remove_keyboard: true };
 }
