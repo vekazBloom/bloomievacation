@@ -1,17 +1,14 @@
 import {
   loadConversation,
   saveConversation,
-  type ChatMessage,
-  type PendingLeaveRequest,
-  type PendingLeaveReview,
 } from '@/lib/bot/conversation';
 import { processChatMessage } from '@/lib/bot/chat-engine';
 import {
   cancelActionMessage,
-  confirmLeaveRequestAction,
-  confirmLeaveReviewAction,
+  confirmPendingAction,
+  getCancelActionForPending,
+  getConfirmActionForPending,
   isCancelAction,
-  type BotActionType,
 } from '@/lib/bot/confirm-action';
 import { absoluteAppUrl } from '@/lib/email/app-url';
 import {
@@ -83,7 +80,7 @@ async function handleStart(chatId: string) {
     const name = (connection.users as { name?: string } | null)?.name ?? 'korisnik';
     await sendTelegramMessage(
       chatId,
-      `Pozdrav ${name}! Već ste povezani.\n\nMožete pisati npr:\n"Tko je na godišnjem ovaj tjedan?"\n"Želim godišnji odmor od 14. augusta do 25. augusta"`
+      `Pozdrav ${name}! Već ste povezani.\n\nMožete me pitati o godišnjem, projektima, praznicima, notifikacijama i više.`
     );
     return;
   }
@@ -119,7 +116,7 @@ async function handleContactShare(chatId: string, phone: string, telegramUserId?
 
   await sendRemoveKeyboard(
     chatId,
-    `Povezani ste kao ${user.name}.\n\nSada možete slobodno pisati, npr:\n"Tko je na godišnjem ovaj tjedan?"`
+    `Povezani ste kao ${user.name}.\n\nSada možete slobodno pisati o godišnjem, timu, praznicima i više.`
   );
 }
 
@@ -170,57 +167,27 @@ async function handleCallback(callback: NonNullable<TelegramUpdate['callback_que
     return;
   }
 
-  const botAction = action as BotActionType;
+  const expectedConfirm = getConfirmActionForPending(pendingAction.kind);
+  const expectedCancel = getCancelActionForPending(pendingAction.kind);
 
-  if (isCancelAction(botAction)) {
+  if (action === expectedCancel || isCancelAction(action as typeof expectedCancel)) {
     await saveConversation(chatId, messages, null);
-    await sendTelegramMessage(chatId, cancelActionMessage(botAction));
+    await sendTelegramMessage(chatId, cancelActionMessage(action as typeof expectedCancel));
     return;
   }
 
-  if (botAction === 'confirm' && pendingAction.kind === 'leave_request') {
-    await handleConfirmLeaveRequest(chatId, messages, connection.user_id, pendingAction);
-    return;
-  }
+  if (action === expectedConfirm) {
+    const result = await confirmPendingAction(connection.user_id, pendingAction);
+    await saveConversation(chatId, messages, null);
 
-  if (botAction === 'review_confirm' && pendingAction.kind === 'leave_review') {
-    await handleConfirmLeaveReview(chatId, messages, connection.user_id, pendingAction);
+    if (!result.ok) {
+      await sendTelegramMessage(chatId, result.error);
+      return;
+    }
+
+    await sendTelegramMessage(chatId, result.message);
     return;
   }
 
   await sendTelegramMessage(chatId, 'Nepoznata akcija.');
-}
-
-async function handleConfirmLeaveRequest(
-  chatId: string,
-  messages: ChatMessage[],
-  userId: string,
-  pending: PendingLeaveRequest
-) {
-  const result = await confirmLeaveRequestAction(userId, pending);
-  await saveConversation(chatId, messages, null);
-
-  if (!result.ok) {
-    await sendTelegramMessage(chatId, result.error);
-    return;
-  }
-
-  await sendTelegramMessage(chatId, result.message);
-}
-
-async function handleConfirmLeaveReview(
-  chatId: string,
-  messages: ChatMessage[],
-  userId: string,
-  pending: PendingLeaveReview
-) {
-  const result = await confirmLeaveReviewAction(userId, pending);
-  await saveConversation(chatId, messages, null);
-
-  if (!result.ok) {
-    await sendTelegramMessage(chatId, result.error);
-    return;
-  }
-
-  await sendTelegramMessage(chatId, result.message);
 }

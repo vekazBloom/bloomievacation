@@ -92,3 +92,9 @@ export async function assertCanReview(
   }
   return { ok: true };
 }
+
+export async function isProjectAdmin(supabase: AppSupabase, userId: string, projectId: string) {
+  if (await isSystemAdmin(supabase, userId)) return true;
+  const roles = await getUserProjectRoles(supabase, userId);
+  return roles.some((p) => p.projectId === projectId && p.role === 'admin');
+}

@@ -13,16 +13,25 @@ type ChatMessage = {
 };
 
 type PendingAction = {
-  kind: 'leave_request' | 'leave_review';
+  kind:
+    | 'leave_request'
+    | 'leave_review'
+    | 'cancel_leave'
+    | 'mark_notifications_read'
+    | 'religious_selection'
+    | 'carry_over'
+    | 'invite_user';
   token: string;
   summary: string;
 };
 
-const WELCOME_MESSAGE = `Pozdrav! Ja sam Bloomie asistent za godišnje odmore.
+const WELCOME_MESSAGE = `Pozdrav! Ja sam Bloomie asistent za BloomieVacation.
 
 Možete me pitati npr.:
 • „Koliko mi je ostalo godišnjeg?"
-• „Tko je na godišnjem ovaj tjedan?"
+• „Koje su mi notifikacije?"
+• „Tko je u projektu X?"
+• „Koji su praznici u decembru?"
 • „Želim godišnji od 14. do 25. augusta"`;
 
 export function ChatWidget({ userName }: { userId: string; userName: string }) {
@@ -262,7 +271,7 @@ export function ChatWidget({ userName }: { userId: string; userName: string }) {
                 ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Pitajte o godišnjem..."
+                placeholder="Pitajte o BloomieVacation..."
                 disabled={loading}
                 className="flex-1"
               />

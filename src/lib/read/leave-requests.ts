@@ -189,3 +189,42 @@ export async function listAwayThisWeek(
 
   return { ok: true as const, entries };
 }
+
+export async function listProjectLeaveRequests(
+  supabase: AppSupabase,
+  userId: string,
+  projectId: string,
+  options?: { limit?: number; status?: LeaveStatus; type?: LeaveType }
+) {
+  const { assertProjectMember } = await import('@/lib/projects/membership');
+  const access = await assertProjectMember(supabase, userId, projectId);
+  if (!access.ok) return access;
+
+  const limit = options?.limit ?? 20;
+  let query = supabase
+    .from('leave_requests')
+    .select(
+      `id, type, start_date, end_date, status, working_days_count, ${leaveRequestUserEmbed}(name)`
+    )
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (options?.status) query = query.eq('status', options.status);
+  if (options?.type) query = query.eq('type', options.type);
+
+  const { data, error } = await query;
+  if (error) return { ok: false as const, error: error.message, status: 500 };
+
+  const requests = (data || []).map((row) => ({
+    id: row.id,
+    type: row.type,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    status: row.status,
+    workingDays: row.working_days_count,
+    employeeName: (Array.isArray(row.users) ? row.users[0] : row.users)?.name ?? 'Zaposlenik',
+  }));
+
+  return { ok: true as const, requests };
+}

@@ -101,15 +101,170 @@ export function formatProjectsList(
   return `Vaši projekti:\n${lines.join('\n')}`;
 }
 
+export function formatProfile(profile: {
+  name: string;
+  email: string;
+  phoneNumber: string | null;
+  isSystemAdmin: boolean;
+}) {
+  return (
+    `Profil:\n` +
+    `Ime: ${profile.name}\n` +
+    `Email: ${profile.email}\n` +
+    `Telefon: ${profile.phoneNumber ?? '—'}\n` +
+    `System admin: ${profile.isSystemAdmin ? 'da' : 'ne'}`
+  );
+}
+
+export function formatNotifications(result: {
+  notifications: Array<{
+    title: string;
+    message: string | null;
+    isUnread: boolean;
+    createdAt: string;
+  }>;
+  unreadCount: number;
+}) {
+  if (result.notifications.length === 0) {
+    return 'Nemate notifikacija.';
+  }
+  const lines = result.notifications.map((n) => {
+    const badge = n.isUnread ? '🔵 ' : '';
+    const body = n.message ? `: ${n.message}` : '';
+    return `${badge}• ${n.title}${body}`;
+  });
+  return `Notifikacije (${result.unreadCount} nepročitanih):\n${lines.join('\n')}`;
+}
+
+export function formatProjectMembers(members: Array<{ name: string; email: string; role: string }>) {
+  if (members.length === 0) return 'Projekat nema članova.';
+  const lines = members.map((m) => `• ${m.name} (${m.role}) — ${m.email}`);
+  return `Članovi projekta:\n${lines.join('\n')}`;
+}
+
+export function formatProjectDetails(project: {
+  name: string;
+  vacationThresholdPercent: number | null;
+  carryOverPolicy: string | null;
+}) {
+  return (
+    `Projekat: ${project.name}\n` +
+    `Prag godišnjeg: ${project.vacationThresholdPercent ?? '—'}%\n` +
+    `Carry-over politika: ${project.carryOverPolicy ?? '—'}`
+  );
+}
+
+export function formatHolidays(holidays: Array<{ name: string; date: string }>, label: string) {
+  if (holidays.length === 0) return `Nema ${label}.`;
+  const lines = holidays.map((h) => `• ${h.name} — ${h.date}`);
+  return `${label}:\n${lines.join('\n')}`;
+}
+
+export function formatReligiousSelections(year: number, selections: Array<{ name: string; date: string }>) {
+  if (selections.length === 0) {
+    return `Nemate odabranih vjerskih praznika za ${year}.`;
+  }
+  const lines = selections.map((s) => `• ${s.name} — ${s.date}`);
+  return `Vjerski praznici za ${year}:\n${lines.join('\n')}`;
+}
+
+export function formatCarryOverDecisions(
+  decisions: Array<{
+    projectName: string;
+    year: number;
+    decision: string;
+    remainingDays: number | null;
+  }>
+) {
+  if (decisions.length === 0) return 'Nemate carry-over odluka.';
+  const lines = decisions.map(
+    (d) => `• ${d.projectName} (${d.year}): ${d.decision}, ${d.remainingDays ?? '—'} dana`
+  );
+  return `Carry-over odluke:\n${lines.join('\n')}`;
+}
+
+export function formatProjectRequests(
+  requests: Array<{
+    employeeName: string;
+    type: LeaveType;
+    startDate: string;
+    endDate: string;
+    status: string;
+    workingDays: number | null;
+  }>
+) {
+  if (requests.length === 0) return 'Nema zahtjeva u projektu.';
+  const lines = requests.map((r) => {
+    const typeLabel = TYPE_LABELS[r.type] ?? r.type;
+    const statusLabel = STATUS_LABELS[r.status] ?? r.status;
+    const range = formatDateRange(r.startDate, r.endDate);
+    const days = r.workingDays != null ? `, ${r.workingDays} dana` : '';
+    return `• ${r.employeeName} — ${typeLabel} (${range}), ${statusLabel}${days}`;
+  });
+  return `Zahtjevi projekta:\n${lines.join('\n')}`;
+}
+
+export function formatInvitations(
+  invitations: Array<{ email: string; role: string; projectName?: string; status?: string }>
+) {
+  if (invitations.length === 0) return 'Nema pending pozivnica.';
+  const lines = invitations.map((inv) => {
+    const project = inv.projectName ? `, ${inv.projectName}` : '';
+    return `• ${inv.email} (${inv.role})${project}`;
+  });
+  return `Pozivnice:\n${lines.join('\n')}`;
+}
+
+export function formatJiraSprints(sprints: Array<{ id: number; name: string; state: string }>) {
+  if (sprints.length === 0) return 'Nema Jira sprintova.';
+  const lines = sprints.map((s) => `• ${s.name} (${s.state}) — ID ${s.id}`);
+  return `Jira sprintovi:\n${lines.join('\n')}`;
+}
+
+export function formatJiraAnalytics(result: {
+  snapshot: { sprintName?: string } | null;
+  userMetrics: Array<{
+    userName: string;
+    issuesCompleted: unknown;
+    issuesTotal: unknown;
+  }>;
+}) {
+  const sprintName = result.snapshot?.sprintName ?? 'Sprint';
+  if (result.userMetrics.length === 0) {
+    return `Nema podataka za sprint ${sprintName}.`;
+  }
+  const lines = result.userMetrics.map(
+    (m) => `• ${m.userName}: ${m.issuesCompleted}/${m.issuesTotal} issue-a`
+  );
+  return `Jira analitika — ${sprintName}:\n${lines.join('\n')}`;
+}
+
 export const READ_ONLY_FORMAT_TOOLS = new Set([
+  'get_my_profile',
+  'list_my_notifications',
+  'list_my_projects',
+  'get_leave_balance',
+  'list_my_requests',
+  'list_national_holidays',
+  'list_religious_holidays',
+  'get_my_religious_selections',
+  'get_carry_over_decisions',
+  'list_annual_fund_definitions',
+  'get_project_details',
+  'get_project_members',
+  'get_project_overview',
+  'list_project_requests',
   'get_team_on_leave',
   'get_team_on_leave_today',
   'get_team_on_leave_this_week',
-  'get_leave_balance',
-  'list_my_requests',
   'list_pending_team_requests',
   'get_vacation_overlap',
-  'list_my_projects',
+  'list_project_invitations',
+  'list_sent_invitations',
+  'search_users_for_invite',
+  'get_jira_config',
+  'list_jira_sprints',
+  'get_jira_sprint_analytics',
 ]);
 
 export function formatToolResult(toolName: string, result: unknown): string | null {
@@ -120,6 +275,23 @@ export function formatToolResult(toolName: string, result: unknown): string | nu
   }
 
   switch (toolName) {
+    case 'get_my_profile':
+      if ('profile' in result) {
+        return formatProfile((result as { profile: Parameters<typeof formatProfile>[0] }).profile);
+      }
+      return null;
+
+    case 'list_my_notifications':
+      if ('notifications' in result) {
+        return formatNotifications(
+          result as {
+            notifications: Parameters<typeof formatNotifications>[0]['notifications'];
+            unreadCount: number;
+          }
+        );
+      }
+      return null;
+
     case 'list_my_projects':
       if (Array.isArray(result)) {
         return formatProjectsList(
@@ -131,7 +303,9 @@ export function formatToolResult(toolName: string, result: unknown): string | nu
         );
       }
       if ('projects' in result && Array.isArray((result as { projects: unknown[] }).projects)) {
-        return formatProjectsList((result as { projects: Array<{ name: string; role: string; projectId: string }> }).projects);
+        return formatProjectsList(
+          (result as { projects: Array<{ name: string; role: string; projectId: string }> }).projects
+        );
       }
       return null;
 
@@ -153,6 +327,81 @@ export function formatToolResult(toolName: string, result: unknown): string | nu
       }
       if ('requests' in result) {
         return formatMyLeaveRequests((result as { requests: MyLeaveRequestRow[] }).requests);
+      }
+      return null;
+
+    case 'list_national_holidays':
+      if ('holidays' in result) {
+        return formatHolidays(
+          (result as { holidays: Array<{ name: string; date: string }> }).holidays,
+          'Državni praznici'
+        );
+      }
+      return null;
+
+    case 'list_religious_holidays':
+      if ('holidays' in result) {
+        return formatHolidays(
+          (result as { holidays: Array<{ name: string; date: string }> }).holidays,
+          'Vjerski praznici (pool)'
+        );
+      }
+      return null;
+
+    case 'get_my_religious_selections':
+      if ('selections' in result && 'year' in result) {
+        return formatReligiousSelections(
+          (result as { year: number }).year,
+          (result as { selections: Array<{ name: string; date: string }> }).selections
+        );
+      }
+      return null;
+
+    case 'get_carry_over_decisions':
+      if ('decisions' in result) {
+        return formatCarryOverDecisions(
+          (result as {
+            decisions: Array<{
+              projectName: string;
+              year: number;
+              decision: string;
+              remainingDays: number | null;
+            }>;
+          }).decisions
+        );
+      }
+      return null;
+
+    case 'get_project_details':
+      if ('project' in result) {
+        return formatProjectDetails(
+          (result as { project: Parameters<typeof formatProjectDetails>[0] }).project
+        );
+      }
+      return null;
+
+    case 'get_project_members':
+      if ('members' in result) {
+        return formatProjectMembers(
+          (result as { members: Array<{ name: string; email: string; role: string }> }).members
+        );
+      }
+      return null;
+
+    case 'list_project_requests':
+      if ('requests' in result) {
+        return formatProjectRequests(
+          (result as {
+            requests: Array<{
+              employeeName: string;
+              type: LeaveType;
+              startDate: string;
+              endDate: string;
+              status: string;
+              workingDays: number | null;
+            }>;
+          }).requests
+        );
       }
       return null;
 
@@ -180,6 +429,56 @@ export function formatToolResult(toolName: string, result: unknown): string | nu
             totalMembers: number;
             thresholdPercent: number;
             exceedsThreshold: boolean;
+          }
+        );
+      }
+      return null;
+
+    case 'list_project_invitations':
+    case 'list_sent_invitations':
+      if ('invitations' in result) {
+        return formatInvitations(
+          (result as {
+            invitations: Array<{ email: string; role: string; projectName?: string }>;
+          }).invitations
+        );
+      }
+      return null;
+
+    case 'search_users_for_invite':
+      if ('users' in result) {
+        const users = (result as { users: Array<{ name: string; email: string }> }).users;
+        if (users.length === 0) return 'Nema korisnika za taj upit.';
+        return `Korisnici:\n${users.map((u) => `• ${u.name} — ${u.email}`).join('\n')}`;
+      }
+      return null;
+
+    case 'get_jira_config':
+      if ('connected' in result) {
+        const r = result as { connected: boolean; config?: { siteUrl?: string; projectKey?: string } };
+        if (!r.connected) return 'Jira nije povezan.';
+        return `Jira: ${r.config?.siteUrl ?? '—'}, projekat ${r.config?.projectKey ?? '—'}`;
+      }
+      return null;
+
+    case 'list_jira_sprints':
+      if ('sprints' in result) {
+        return formatJiraSprints(
+          (result as { sprints: Array<{ id: number; name: string; state: string }> }).sprints
+        );
+      }
+      return null;
+
+    case 'get_jira_sprint_analytics':
+      if ('userMetrics' in result) {
+        return formatJiraAnalytics(
+          result as {
+            snapshot: { sprintName?: string } | null;
+            userMetrics: Array<{
+              userName: string;
+              issuesCompleted: unknown;
+              issuesTotal: unknown;
+            }>;
           }
         );
       }

@@ -4,9 +4,17 @@ import {
   type PendingBotAction,
 } from '@/lib/bot/conversation';
 import { formatToolResult, READ_ONLY_FORMAT_TOOLS } from '@/lib/bot/formatters';
-import { BOT_TOOLS, buildBotToolContext, executeBotTool, listUserProjects } from '@/lib/bot/tools';
+import {
+  buildBotToolContext,
+  buildBotToolsForUser,
+  executeBotTool,
+  PREVIEW_TOOL_NAMES,
+} from '@/lib/bot/tools';
+import type { OpenAITool } from '@/lib/bot/tools/definitions';
+import { buildUserContextBlock } from '@/lib/bot/user-context';
 import type { CreateLeaveRequestInput } from '@/lib/leave/create-request';
 import { createServiceClient } from '@/lib/supabase/server';
+import type { ProjectRole } from '@/types/database';
 
 type OpenAIMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -20,27 +28,46 @@ type OpenAIMessage = {
   name?: string;
 };
 
-export const SYSTEM_PROMPT = `Ti si asistent za BloomieVacation — sistem za zahtjeve za godišnji odmor.
+export const SYSTEM_PROMPT = `Ti si Bloomie asistent za BloomieVacation — aplikaciju za upravljanje godišnjim odmorom, timom i projektima.
 Odgovaraj na hrvatskom/bosanskom/srpskom jeziku.
 
-Pravila za vlastite zahtjeve:
-- Za kreiranje zahtjeva UVIJEK prvo pozovi preview_leave_request.
-- Nikad ne šalješ zahtjev direktno — nakon uspješnog preview-a reci korisniku da potvrdi dugmetom.
-- Tipovi: annual = godišnji odmor, sick = bolovanje, religious = vjerski praznik.
-- Datume pretvori u ISO format YYYY-MM-DD. Godina je ${new Date().getFullYear()} ako korisnik ne navede.
-- Ako korisnik ima jedan projekat, koristi taj projectId bez pitanja.
-- Za bolovanje s doktorovom potvrdom uputi korisnika na web aplikaciju.
+Što aplikacija nudi:
+- Projekti i članovi tima
+- Zahtjevi za godišnji, bolovanje i vjerske praznike
+- Kalendar odsustva i preklapanje tima
+- Državni i vjerski praznici
+- Carry-over odluke na kraju godine
+- In-app notifikacije
+- Pozivnice na projekte (admin)
+- Jira analitika (samo system admin)
 
-Pravila za tim (svi članovi projekta):
-- Za pitanja tko je na odmoru koristi get_team_on_leave, get_team_on_leave_today ili get_team_on_leave_this_week.
-- Za postotak preklapanja tima na godišnjem koristi get_vacation_overlap.
+Opća pravila:
+- NIKAD ne izmišljaj podatke — koristi isključivo alate.
 - Ne otkrivaj podatke projekata gdje korisnik nije član.
-- NIKAD ne izmišljaj imena, datume ni brojeve — podaci dolaze isključivo iz alata (baze).
+- Poštuj ulogu korisnika — ne nudi admin ili Jira alate ako nisu dostupni.
+- Za kompleksne UI akcije (upload doktora, detaljni edit profila) uputi na web aplikaciju.
 
-Pravila za lead/admin:
-- Za pending zahtjeve koristi list_pending_team_requests.
-- Za odobrenje/odbijanje UVIJEK koristi preview_review_leave_request, zatim korisnik potvrđuje dugmetom.
+Godišnji odmor:
+- Za kreiranje UVIJEK koristi preview_leave_request, zatim korisnik potvrđuje dugmetom.
+- Tipovi: annual = godišnji, sick = bolovanje, religious = vjerski.
+- Datume pretvori u YYYY-MM-DD. Godina je ${new Date().getFullYear()} ako korisnik ne navede.
+- Za otkazivanje vlastitog zahtjeva koristi preview_cancel_leave_request.
+
+Tim i projekti:
+- Za tko je na odmoru: get_team_on_leave, get_team_on_leave_today, get_team_on_leave_this_week.
+- Za članove i detalje projekta: get_project_members, get_project_details, get_project_overview.
+- Za preklapanje: get_vacation_overlap.
+
+Lead/admin:
+- Pending zahtjevi: list_pending_team_requests.
+- Odobrenje/odbijanje: preview_review_leave_request + potvrda.
 - Lead ne može odobriti vlastiti zahtjev.
+- Pozivnice: preview_invite_user (samo admin).
+
+Ostalo:
+- Notifikacije: list_my_notifications; označavanje pročitanih: preview_mark_notifications_read.
+- Vjerski praznici: list_religious_holidays, get_my_religious_selections; postavljanje: preview_religious_selection.
+- Carry-over: get_carry_over_decisions, preview_carry_over_decision.
 
 Budi kratak i jasan.`;
 
@@ -50,7 +77,7 @@ function getOpenAIKey() {
   return key;
 }
 
-async function callOpenAI(messages: OpenAIMessage[]) {
+async function callOpenAI(messages: OpenAIMessage[], tools: OpenAITool[]) {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -60,7 +87,7 @@ async function callOpenAI(messages: OpenAIMessage[]) {
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
       messages,
-      tools: BOT_TOOLS,
+      tools,
       tool_choice: 'auto',
       temperature: 0.3,
     }),
@@ -105,11 +132,112 @@ async function resolveProjectName(projectId: string) {
   return data?.name ?? 'Projekat';
 }
 
-async function buildProjectContext(ctx: ReturnType<typeof buildBotToolContext>) {
-  const projects = await listUserProjects(ctx);
-  if (projects.length === 0) return '\n\nKorisnik nema aktivnih projekata.';
-  const lines = projects.map((p) => `- ${p.name} (${p.role}): ${p.projectId}`);
-  return `\n\nProjekti korisnika (koristi projectId):\n${lines.join('\n')}`;
+function buildPendingFromPreview(
+  toolName: string,
+  result: unknown,
+  userId: string
+): PendingBotAction | null {
+  if (!result || typeof result !== 'object' || !('ok' in result) || result.ok !== true) {
+    return null;
+  }
+
+  const token = createPendingToken();
+  const createdAt = new Date().toISOString();
+
+  if (toolName === 'preview_review_leave_request') {
+    const preview = result as unknown as {
+      requestId: string;
+      action: 'approve' | 'reject';
+      decisionNote: string | null;
+      summary: string;
+    };
+    return {
+      kind: 'leave_review',
+      token,
+      reviewerId: userId,
+      requestId: preview.requestId,
+      action: preview.action,
+      decisionNote: preview.decisionNote,
+      summary: preview.summary,
+      createdAt,
+    };
+  }
+
+  if (toolName === 'preview_cancel_leave_request') {
+    const preview = result as unknown as { requestId: string; summary: string };
+    return {
+      kind: 'cancel_leave',
+      token,
+      userId,
+      requestId: preview.requestId,
+      summary: preview.summary,
+      createdAt,
+    };
+  }
+
+  if (toolName === 'preview_mark_notifications_read') {
+    const preview = result as unknown as { summary: string };
+    return {
+      kind: 'mark_notifications_read',
+      token,
+      userId,
+      summary: preview.summary,
+      createdAt,
+    };
+  }
+
+  if (toolName === 'preview_religious_selection') {
+    const preview = result as unknown as { year: number; holidayIds: string[]; summary: string };
+    return {
+      kind: 'religious_selection',
+      token,
+      userId,
+      year: preview.year,
+      holidayIds: preview.holidayIds,
+      summary: preview.summary,
+      createdAt,
+    };
+  }
+
+  if (toolName === 'preview_carry_over_decision') {
+    const preview = result as unknown as {
+      projectId: string;
+      year: number;
+      decision: 'transferred' | 'lost';
+      summary: string;
+    };
+    return {
+      kind: 'carry_over',
+      token,
+      userId,
+      projectId: preview.projectId,
+      year: preview.year,
+      decision: preview.decision,
+      summary: preview.summary,
+      createdAt,
+    };
+  }
+
+  if (toolName === 'preview_invite_user') {
+    const preview = result as unknown as {
+      projectId: string;
+      email: string;
+      role: ProjectRole;
+      summary: string;
+    };
+    return {
+      kind: 'invite_user',
+      token,
+      userId,
+      projectId: preview.projectId,
+      email: preview.email,
+      role: preview.role,
+      summary: preview.summary,
+      createdAt,
+    };
+  }
+
+  return null;
 }
 
 export async function processChatMessage(params: {
@@ -127,10 +255,13 @@ export async function processChatMessage(params: {
   const history: ChatMessage[] = [...params.messages, { role: 'user', content: text }];
 
   const ctx = buildBotToolContext(userId);
-  const projectContext = await buildProjectContext(ctx);
+  const [userContext, tools] = await Promise.all([
+    buildUserContextBlock(ctx.supabase, userId),
+    buildBotToolsForUser(userId),
+  ]);
 
   const openAiMessages: OpenAIMessage[] = [
-    { role: 'system', content: SYSTEM_PROMPT + projectContext },
+    { role: 'system', content: SYSTEM_PROMPT + userContext },
     ...history.map((m) => ({
       role: m.role,
       content: m.content,
@@ -139,7 +270,7 @@ export async function processChatMessage(params: {
     })),
   ];
 
-  let assistantMessage = await callOpenAI(openAiMessages);
+  let assistantMessage = await callOpenAI(openAiMessages, tools);
   let pending: PendingBotAction | null = pendingAction;
   const previousToken = pending?.token ?? null;
   const newHistory: ChatMessage[] = [...history];
@@ -169,61 +300,37 @@ export async function processChatMessage(params: {
         content: resultText,
       });
 
-      if (
-        toolCall.function.name === 'preview_leave_request' &&
-        result &&
-        typeof result === 'object' &&
-        'ok' in result &&
-        result.ok === true
-      ) {
-        const preview = result as {
-          ok: true;
-          workingDays: number;
-          overlap: { overlapPercent: number; exceedsThreshold: boolean };
-          resolvedInput: CreateLeaveRequestInput;
-        };
-        const projectName = await resolveProjectName(preview.resolvedInput.projectId);
-        const summary = formatPreviewSummary(preview.resolvedInput, preview, projectName);
-        const token = createPendingToken();
-        pending = {
-          kind: 'leave_request',
-          token,
-          userId,
-          payload: preview.resolvedInput,
-          summary,
-          createdAt: new Date().toISOString(),
-        };
-      }
-
-      if (
-        toolCall.function.name === 'preview_review_leave_request' &&
-        result &&
-        typeof result === 'object' &&
-        'ok' in result &&
-        result.ok === true
-      ) {
-        const preview = result as {
-          ok: true;
-          requestId: string;
-          action: 'approve' | 'reject';
-          decisionNote: string | null;
-          summary: string;
-        };
-        const token = createPendingToken();
-        pending = {
-          kind: 'leave_review',
-          token,
-          reviewerId: userId,
-          requestId: preview.requestId,
-          action: preview.action,
-          decisionNote: preview.decisionNote,
-          summary: preview.summary,
-          createdAt: new Date().toISOString(),
-        };
+      if (PREVIEW_TOOL_NAMES.has(toolCall.function.name)) {
+        if (
+          toolCall.function.name === 'preview_leave_request' &&
+          result &&
+          typeof result === 'object' &&
+          'ok' in result &&
+          result.ok === true
+        ) {
+          const preview = result as unknown as {
+            workingDays: number;
+            overlap: { overlapPercent: number; exceedsThreshold: boolean };
+            resolvedInput: CreateLeaveRequestInput;
+          };
+          const projectName = await resolveProjectName(preview.resolvedInput.projectId);
+          const summary = formatPreviewSummary(preview.resolvedInput, preview, projectName);
+          pending = {
+            kind: 'leave_request',
+            token: createPendingToken(),
+            userId,
+            payload: preview.resolvedInput,
+            summary,
+            createdAt: new Date().toISOString(),
+          };
+        } else {
+          const built = buildPendingFromPreview(toolCall.function.name, result, userId);
+          if (built) pending = built;
+        }
       }
     }
 
-    assistantMessage = await callOpenAI(openAiMessages);
+    assistantMessage = await callOpenAI(openAiMessages, tools);
   }
 
   const replyText =

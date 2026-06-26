@@ -1,6 +1,7 @@
 import { createServiceClient } from '@/lib/supabase/server';
 import type { CreateLeaveRequestInput } from '@/lib/leave/create-request';
 import type { ReviewLeaveAction } from '@/lib/leave/review-request';
+import type { ProjectRole } from '@/types/database';
 
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -29,7 +30,73 @@ export type PendingLeaveReview = {
   createdAt: string;
 };
 
-export type PendingBotAction = PendingLeaveRequest | PendingLeaveReview;
+export type PendingCancelLeave = {
+  kind: 'cancel_leave';
+  token: string;
+  userId: string;
+  requestId: string;
+  summary: string;
+  createdAt: string;
+};
+
+export type PendingMarkNotificationsRead = {
+  kind: 'mark_notifications_read';
+  token: string;
+  userId: string;
+  summary: string;
+  createdAt: string;
+};
+
+export type PendingReligiousSelection = {
+  kind: 'religious_selection';
+  token: string;
+  userId: string;
+  year: number;
+  holidayIds: string[];
+  summary: string;
+  createdAt: string;
+};
+
+export type PendingCarryOver = {
+  kind: 'carry_over';
+  token: string;
+  userId: string;
+  projectId: string;
+  year: number;
+  decision: 'transferred' | 'lost';
+  summary: string;
+  createdAt: string;
+};
+
+export type PendingInviteUser = {
+  kind: 'invite_user';
+  token: string;
+  userId: string;
+  projectId: string;
+  email: string;
+  role: ProjectRole;
+  summary: string;
+  createdAt: string;
+};
+
+export type PendingBotAction =
+  | PendingLeaveRequest
+  | PendingLeaveReview
+  | PendingCancelLeave
+  | PendingMarkNotificationsRead
+  | PendingReligiousSelection
+  | PendingCarryOver
+  | PendingInviteUser;
+
+const PENDING_KINDS = new Set([
+  'leave_request',
+  'leave_review',
+  'cancel_leave',
+  'mark_notifications_read',
+  'religious_selection',
+  'carry_over',
+  'invite_user',
+]);
 
 const MAX_MESSAGES = 24;
 
@@ -46,7 +113,7 @@ export function persistentMessagesOnly(messages: ChatMessage[]): ChatMessage[] {
 function normalizePending(raw: unknown): PendingBotAction | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
-  if (obj.kind === 'leave_review' || obj.kind === 'leave_request') {
+  if (typeof obj.kind === 'string' && PENDING_KINDS.has(obj.kind)) {
     return obj as PendingBotAction;
   }
   if (obj.token && obj.userId && obj.payload) {
@@ -94,3 +161,5 @@ export async function saveConversation(
 export function createPendingToken() {
   return crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 }
+
+export { normalizePending };
