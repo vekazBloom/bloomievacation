@@ -1,7 +1,6 @@
 import { TeamSchedulerLazy as TeamScheduler } from '@/components/calendar/team-scheduler-lazy';
 import { mapHolidayToEvent, mapLeaveRequestToEvent, type LeaveRequestRow } from '@/lib/calendar/map-events';
-import { getNationalHolidays } from '@/lib/holidays/national';
-import { leaveRequestUserEmbed } from '@/lib/leave/queries';
+import { getProjectTeamCalendarData } from '@/lib/read/calendar';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 import { canReviewLeaveForRole } from '@/lib/projects/access';
 import { getProjectBySlug } from '@/lib/projects/resolve';
@@ -50,31 +49,28 @@ export async function ProjectTeamCalendarSection({ slug }: { slug: string }) {
     return null;
   }
 
-  const [{ data: members }, holidays] = await Promise.all([
+  const [{ data: members }, calendarData] = await Promise.all([
     supabase.from('project_members').select('user_id, users(id, name)').eq('project_id', projectId),
-    getNationalHolidays(),
+    getProjectTeamCalendarData(supabase, user.id, projectId),
   ]);
 
-  const memberUserIds = [
-    ...new Set(
-      (members || [])
-        .map((row: { user_id?: string }) => row.user_id)
-        .filter((id): id is string => Boolean(id))
-    ),
-  ];
+  if (!calendarData.ok) {
+    return null;
+  }
 
-  const { data: requests } =
-    memberUserIds.length > 0
-      ? await supabase
-          .from('leave_requests')
-          .select(
-            `id, user_id, project_id, type, status, start_date, end_date, reason, ${leaveRequestUserEmbed}(name, avatar_url), projects!leave_requests_project_id_fkey(name, slug)`
-          )
-          .in('user_id', memberUserIds)
-          .in('status', ['pending', 'approved'])
-      : { data: [] };
-
-  const requestRows = requests || [];
+  const holidays = calendarData.holidays;
+  const requestRows = calendarData.leaveRequests.map((row) => ({
+    id: row.id,
+    user_id: row.userId,
+    project_id: row.projectId,
+    type: row.type,
+    status: row.status,
+    start_date: row.startDate,
+    end_date: row.endDate,
+    reason: row.reason,
+    users: { name: row.employeeName },
+    projects: row.projectName ? { name: row.projectName, slug: project.slug } : null,
+  })) as LeaveRequestRow[];
 
   const requestProjectIds = [
     ...new Set(

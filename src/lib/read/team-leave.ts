@@ -1,8 +1,9 @@
 import { endOfWeek, format, startOfWeek } from 'date-fns';
+import { assertProjectMember } from '@/lib/projects/membership';
+import { listPendingApprovals } from '@/lib/read/leave-requests';
 import { leaveRequestUserEmbed } from '@/lib/leave/queries';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import type { LeaveStatus, LeaveType } from '@/types/database';
-import { assertProjectMember, getReviewableProjectIds } from '@/lib/bot/permissions';
 
 export type TeamLeaveRow = {
   name: string;
@@ -41,7 +42,7 @@ function mapLeaveRows(
   });
 }
 
-export async function getTeamOnLeave(
+export async function getTeamLeaveInRange(
   supabase: AppSupabase,
   userId: string,
   projectId: string,
@@ -78,16 +79,30 @@ export async function getTeamOnLeave(
   return { ok: true as const, entries: mapLeaveRows((data || []) as Parameters<typeof mapLeaveRows>[0]) };
 }
 
-export async function getTeamOnLeaveToday(supabase: AppSupabase, userId: string, projectId: string) {
+export async function getTeamLeaveToday(
+  supabase: AppSupabase,
+  userId: string,
+  projectId: string,
+  options?: { includePending?: boolean }
+) {
   const today = format(new Date(), 'yyyy-MM-dd');
-  return getTeamOnLeave(supabase, userId, projectId, today, today);
+  return getTeamLeaveInRange(supabase, userId, projectId, today, today, {
+    includePending: options?.includePending,
+  });
 }
 
-export async function getTeamOnLeaveThisWeek(supabase: AppSupabase, userId: string, projectId: string) {
+export async function getTeamLeaveThisWeek(
+  supabase: AppSupabase,
+  userId: string,
+  projectId: string,
+  options?: { includePending?: boolean }
+) {
   const now = new Date();
   const start = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
   const end = format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
-  return getTeamOnLeave(supabase, userId, projectId, start, end);
+  return getTeamLeaveInRange(supabase, userId, projectId, start, end, {
+    includePending: options?.includePending,
+  });
 }
 
 export async function getVacationOverlap(
@@ -131,42 +146,5 @@ export async function listPendingTeamRequests(
   reviewerId: string,
   options?: { projectId?: string; limit?: number }
 ) {
-  let projectIds = await getReviewableProjectIds(supabase, reviewerId);
-  if (projectIds.length === 0) {
-    return { ok: false as const, error: 'Nemate dozvolu za pregled pending zahtjeva.', status: 403 };
-  }
-
-  if (options?.projectId) {
-    if (!projectIds.includes(options.projectId)) {
-      return { ok: false as const, error: 'Nemate dozvolu u ovom projektu.', status: 403 };
-    }
-    projectIds = [options.projectId];
-  }
-
-  const limit = options?.limit ?? 10;
-  const { data, error } = await supabase
-    .from('leave_requests')
-    .select(
-      `id, type, start_date, end_date, working_days_count, status, project_id, ${leaveRequestUserEmbed}(name), projects!leave_requests_project_id_fkey(name)`
-    )
-    .in('project_id', projectIds)
-    .eq('status', 'pending')
-    .neq('user_id', reviewerId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) return { ok: false as const, error: error.message, status: 500 };
-
-  return {
-    ok: true as const,
-    requests: (data || []).map((row) => ({
-      requestId: row.id,
-      employeeName: (Array.isArray(row.users) ? row.users[0] : row.users)?.name ?? 'Zaposlenik',
-      projectName: (Array.isArray(row.projects) ? row.projects[0] : row.projects)?.name ?? 'Projekat',
-      type: row.type,
-      startDate: row.start_date,
-      endDate: row.end_date,
-      workingDays: row.working_days_count,
-    })),
-  };
+  return listPendingApprovals(supabase, reviewerId, options);
 }

@@ -1,7 +1,6 @@
 import { TeamSchedulerLazy as TeamScheduler } from '@/components/calendar/team-scheduler-lazy';
 import { mapHolidayToEvent, mapLeaveRequestToEvent } from '@/lib/calendar/map-events';
-import { getNationalHolidays } from '@/lib/holidays/national';
-import { leaveRequestUserEmbed } from '@/lib/leave/queries';
+import { getPersonalCalendarData } from '@/lib/read/calendar';
 import { getDashboardSession } from '@/lib/auth/dashboard';
 
 type RequestRow = {
@@ -28,16 +27,24 @@ export async function PersonalCalendarSection() {
   }
 
   const { supabase, user } = session;
-  const [{ data: requests }, holidays] = await Promise.all([
-    supabase
-      .from('leave_requests')
-      .select(`id, user_id, type, status, start_date, end_date, reason, projects!leave_requests_project_id_fkey(name), ${leaveRequestUserEmbed}(name, avatar_url)`)
-      .eq('user_id', user.id)
-      .in('status', ['pending', 'approved']),
-    getNationalHolidays(),
-  ]);
+  const calendarData = await getPersonalCalendarData(supabase, user.id);
+  if (!calendarData.ok) {
+    return null;
+  }
 
-  const typedRequests = (requests || []) as RequestRow[];
+  const typedRequests = calendarData.leaveRequests.map((row) => ({
+    id: row.id,
+    user_id: row.userId,
+    type: row.type,
+    status: row.status,
+    start_date: row.startDate,
+    end_date: row.endDate,
+    reason: row.reason,
+    projects: row.projectName ? { name: row.projectName } : null,
+    users: { name: row.employeeName },
+  })) as RequestRow[];
+
+  const holidays = calendarData.holidays;
   const groupedReligious = new Map<string, { request: RequestRow; projectNames: Set<string> }>();
   const nonReligious = typedRequests.filter((request) => request.type !== 'religious');
 

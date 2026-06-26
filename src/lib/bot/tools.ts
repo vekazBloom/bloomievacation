@@ -1,14 +1,16 @@
-import { getUserProjectRoles } from '@/lib/bot/permissions';
+import { format, startOfWeek, endOfWeek } from 'date-fns';
 import { previewReviewLeaveRequest } from '@/lib/bot/review-leave';
+import { listMyProjects } from '@/lib/read/projects';
+import { getMyLeaveBalance } from '@/lib/read/leave-balance';
+import { listMyLeaveRequests } from '@/lib/read/leave-requests';
 import {
-  getTeamOnLeave,
-  getTeamOnLeaveThisWeek,
-  getTeamOnLeaveToday,
+  getTeamLeaveInRange,
+  getTeamLeaveThisWeek,
+  getTeamLeaveToday,
   getVacationOverlap,
   listPendingTeamRequests,
-} from '@/lib/bot/team-leave';
+} from '@/lib/read/team-leave';
 import { createLeaveRequest, previewLeaveRequest, type CreateLeaveRequestInput } from '@/lib/leave/create-request';
-import { getUserLeaveBalance } from '@/lib/leave/global-balance';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import type { LeaveType } from '@/types/database';
@@ -19,46 +21,22 @@ export type BotToolContext = {
 };
 
 export async function listUserProjects(ctx: BotToolContext) {
-  return getUserProjectRoles(ctx.supabase, ctx.userId);
+  const result = await listMyProjects(ctx.supabase, ctx.userId);
+  return result.projects;
 }
 
 export async function getLeaveBalanceSummary(ctx: BotToolContext) {
-  const { data: balance } = await getUserLeaveBalance(ctx.supabase, ctx.userId);
-  if (!balance) {
-    return { message: 'Nema konfigurisanog stanja godišnjeg odmora.' };
+  const result = await getMyLeaveBalance(ctx.supabase, ctx.userId);
+  if (!result.ok) {
+    return { message: result.error };
   }
-  const annualTotal =
-    Number(balance.annual_leave_total ?? 0) + Number(balance.annual_leave_carried_over ?? 0);
-  const annualUsed = Number(balance.annual_leave_used ?? 0);
-  const sickTotal = Number(balance.sick_leave_total ?? 0);
-  const sickUsed = Number(balance.sick_leave_used ?? 0);
-  return {
-    annualRemaining: Math.max(0, annualTotal - annualUsed),
-    annualTotal,
-    annualUsed,
-    sickRemaining: Math.max(0, sickTotal - sickUsed),
-    sickTotal,
-    sickUsed,
-  };
+  return result.balance;
 }
 
 export async function listUserLeaveRequests(ctx: BotToolContext, limit = 5) {
-  const { data } = await ctx.supabase
-    .from('leave_requests')
-    .select('id, type, start_date, end_date, status, working_days_count, projects(name)')
-    .eq('user_id', ctx.userId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  return (data || []).map((row) => ({
-    id: row.id,
-    type: row.type,
-    startDate: row.start_date,
-    endDate: row.end_date,
-    status: row.status,
-    workingDays: row.working_days_count,
-    projectName: (row.projects as { name?: string } | null)?.name ?? 'Projekat',
-  }));
+  const result = await listMyLeaveRequests(ctx.supabase, ctx.userId, { limit });
+  if (!result.ok) return result;
+  return result.requests;
 }
 
 export async function toolPreviewLeaveRequest(ctx: BotToolContext, input: CreateLeaveRequestInput) {
@@ -243,7 +221,7 @@ export async function executeBotTool(
     case 'list_my_requests':
       return listUserLeaveRequests(ctx, typeof args.limit === 'number' ? args.limit : 5);
     case 'get_team_on_leave':
-      return getTeamOnLeave(
+      return getTeamLeaveInRange(
         ctx.supabase,
         ctx.userId,
         String(args.projectId),
@@ -254,36 +232,14 @@ export async function executeBotTool(
           types: Array.isArray(args.types) ? (args.types as LeaveType[]) : undefined,
         }
       );
-    case 'get_team_on_leave_today': {
-      const result = await getTeamOnLeaveToday(ctx.supabase, ctx.userId, String(args.projectId));
-      if (!result.ok) return result;
-      if (args.includePending === true) {
-        return getTeamOnLeave(
-          ctx.supabase,
-          ctx.userId,
-          String(args.projectId),
-          new Date().toISOString().slice(0, 10),
-          new Date().toISOString().slice(0, 10),
-          { includePending: true }
-        );
-      }
-      return result;
-    }
-    case 'get_team_on_leave_this_week': {
-      if (args.includePending === true) {
-        const { startOfWeek, endOfWeek, format } = await import('date-fns');
-        const now = new Date();
-        return getTeamOnLeave(
-          ctx.supabase,
-          ctx.userId,
-          String(args.projectId),
-          format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-          format(endOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd'),
-          { includePending: true }
-        );
-      }
-      return getTeamOnLeaveThisWeek(ctx.supabase, ctx.userId, String(args.projectId));
-    }
+    case 'get_team_on_leave_today':
+      return getTeamLeaveToday(ctx.supabase, ctx.userId, String(args.projectId), {
+        includePending: args.includePending === true,
+      });
+    case 'get_team_on_leave_this_week':
+      return getTeamLeaveThisWeek(ctx.supabase, ctx.userId, String(args.projectId), {
+        includePending: args.includePending === true,
+      });
     case 'get_vacation_overlap':
       return getVacationOverlap(
         ctx.supabase,

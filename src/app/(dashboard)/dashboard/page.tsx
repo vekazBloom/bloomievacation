@@ -8,8 +8,12 @@ import { getDashboardSession } from '@/lib/auth/dashboard';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getUserLeaveBalance } from '@/lib/leave/global-balance';
-import { leaveRequestProjectEmbedWithSlug, leaveRequestUserEmbed } from '@/lib/leave/queries';
+import {
+  listAwayThisWeek,
+  listMyLeaveRequests,
+  listPendingApprovals,
+} from '@/lib/read/leave-requests';
+import { getMyLeaveBalance } from '@/lib/read/leave-balance';
 import { formatDateRange } from '@/lib/utils';
 import { projectPath } from '@/lib/projects/paths';
 
@@ -20,12 +24,15 @@ export default async function DashboardPage() {
   const { supabase, user, profile } = session;
 
   const today = new Date().toISOString().split('T')[0];
-  const weekEnd = new Date();
-  weekEnd.setDate(weekEnd.getDate() + 7);
-  const weekEndIso = weekEnd.toISOString().split('T')[0];
 
-  // Round 1 — three independent queries run in parallel.
-  const [{ data: memberships }, { data: globalBalance }, { data: upcoming }] = await Promise.all([
+  // Round 1 — memberships + canonical read layer queries in parallel.
+  const [
+    { data: memberships },
+    balanceResult,
+    upcomingResult,
+    pendingResult,
+    awayResult,
+  ] = await Promise.all([
     supabase
       .from('project_members')
       .select(
@@ -38,63 +45,28 @@ export default async function DashboardPage() {
       `
       )
       .eq('user_id', user.id),
-    getUserLeaveBalance(supabase, user.id),
-    supabase
-      .from('leave_requests')
-      .select(`id, type, status, start_date, end_date, project_id, ${leaveRequestProjectEmbedWithSlug}`)
-      .eq('user_id', user.id)
-      .gte('end_date', today)
-      .in('status', ['pending', 'approved'])
-      .order('start_date', { ascending: true })
-      .limit(5),
+    getMyLeaveBalance(supabase, user.id),
+    listMyLeaveRequests(supabase, user.id, { limit: 5, fromDate: today }),
+    listPendingApprovals(supabase, user.id, { limit: 5 }),
+    listAwayThisWeek(supabase, user.id, { limit: 8 }),
   ]);
 
   const activeMemberships = (memberships || []).filter((m: any) => m.projects && !m.projects.is_archived);
-
-  // Pending approvals (if I'm a lead/admin somewhere).
   const leadProjectIds = activeMemberships
     .filter((m: any) => m.role === 'admin' || m.role === 'lead')
     .map((m: any) => m.projects.id);
+  const upcoming = upcomingResult.ok ? upcomingResult.requests : [];
+  const pendingApprovals = pendingResult.ok ? pendingResult.requests : [];
+  const awayThisWeek = awayResult.ok ? awayResult.entries : [];
 
-  // Round 2 — two queries that depend on memberships, run in parallel with each other.
-  const [{ data: pendingApprovals }, { data: awayThisWeek }] = await Promise.all([
-    leadProjectIds.length > 0
-      ? supabase
-          .from('leave_requests')
-          .select(`id, type, start_date, end_date, working_days_count, user_id, project_id, ${leaveRequestUserEmbed}(name, avatar_url), ${leaveRequestProjectEmbedWithSlug}`)
-          .in('project_id', leadProjectIds)
-          .eq('status', 'pending')
-          .neq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(5)
-      : Promise.resolve({ data: [] }),
-    activeMemberships.length > 0
-      ? supabase
-          .from('leave_requests')
-          .select(`id, type, start_date, end_date, ${leaveRequestUserEmbed}(name), ${leaveRequestProjectEmbedWithSlug}, project_id`)
-          .in(
-            'project_id',
-            activeMemberships.map((m: any) => m.projects.id)
-          )
-          .eq('status', 'approved')
-          .lte('start_date', weekEndIso)
-          .gte('end_date', today)
-          .order('start_date', { ascending: true })
-          .limit(8)
-      : Promise.resolve({ data: [] }),
-  ]);
-
-  // Prefer globally synchronized user balances; fallback to project-sum if migration isn't applied.
-  const totals = globalBalance
+  const totals = balanceResult.ok
     ? {
-        annualTotal:
-          Number(globalBalance.annual_leave_total || 0) +
-          Number(globalBalance.annual_leave_carried_over || 0),
-        annualUsed: Number(globalBalance.annual_leave_used || 0),
-        sickTotal: Number(globalBalance.sick_leave_total || 0),
-        sickUsed: Number(globalBalance.sick_leave_used || 0),
-        religiousTotal: Number(globalBalance.religious_leave_total || 0),
-        religiousUsed: Number(globalBalance.religious_leave_used || 0),
+        annualTotal: balanceResult.balance.annualTotal,
+        annualUsed: balanceResult.balance.annualUsed,
+        sickTotal: balanceResult.balance.sickTotal,
+        sickUsed: balanceResult.balance.sickUsed,
+        religiousTotal: balanceResult.balance.religiousTotal,
+        religiousUsed: balanceResult.balance.religiousUsed,
       }
     : activeMemberships.reduce(
         (acc: any, m: any) => ({
@@ -193,18 +165,16 @@ export default async function DashboardPage() {
               No approved leave in your projects this week.
             </p>
           ) : (
-            (awayThisWeek || []).map((req: any) => (
+            (awayThisWeek || []).map((req) => (
               <Link
                 key={req.id}
-                href={
-                  req.projects?.slug ? projectPath(req.projects.slug, 'requests') : '#'
-                }
+                href={req.projectSlug ? projectPath(req.projectSlug, 'requests') : '#'}
                 className="flex items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-accent/30"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{req.users?.name || 'Teammate'}</p>
+                  <p className="truncate text-sm font-medium">{req.employeeName}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {req.projects?.name} · {formatDateRange(req.start_date, req.end_date)}
+                    {req.projectName} · {formatDateRange(req.startDate, req.endDate)}
                   </p>
                 </div>
                 <Badge variant="outline" className="uppercase">{req.type}</Badge>
@@ -231,22 +201,20 @@ export default async function DashboardPage() {
                 Nothing on the horizon. Time to plan a break? 🌴
               </p>
             ) : (
-              (upcoming || []).map((req: any) => (
+              (upcoming || []).map((req) => (
                 <Link
                   key={req.id}
-                  href={
-                    req.projects?.slug ? projectPath(req.projects.slug, 'requests') : '#'
-                  }
+                  href={req.projectSlug ? projectPath(req.projectSlug, 'requests') : '#'}
                   className="flex items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-accent/30"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <LeaveTypeIcon type={req.type} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">
-                        {formatDateRange(req.start_date, req.end_date)}
+                        {formatDateRange(req.startDate, req.endDate)}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {req.projects?.name || 'Project'}
+                        {req.projectName}
                       </p>
                     </div>
                   </div>
@@ -272,22 +240,20 @@ export default async function DashboardPage() {
                   All caught up. ✨
                 </p>
               ) : (
-                (pendingApprovals || []).map((req: any) => (
+                (pendingApprovals || []).map((req) => (
                   <Link
-                    key={req.id}
-                    href={
-                      req.projects?.slug ? projectPath(req.projects.slug, 'requests') : '#'
-                    }
+                    key={req.requestId}
+                    href={req.projectSlug ? projectPath(req.projectSlug, 'requests') : '#'}
                     className="flex items-center justify-between gap-3 px-6 py-3 transition-colors hover:bg-accent/30"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <LeaveTypeIcon type={req.type} />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">
-                          {req.users?.name || 'Someone'} · {req.working_days_count}d
+                          {req.employeeName} · {req.workingDays ?? '—'}d
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {formatDateRange(req.start_date, req.end_date)}
+                          {formatDateRange(req.startDate, req.endDate)}
                         </p>
                       </div>
                     </div>

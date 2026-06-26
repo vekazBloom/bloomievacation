@@ -8,6 +8,7 @@ import {
   type PendingLeaveReview,
 } from '@/lib/bot/conversation';
 import { BOT_TOOLS, buildBotToolContext, executeBotTool, listUserProjects } from '@/lib/bot/tools';
+import { formatToolResult, READ_ONLY_FORMAT_TOOLS } from '@/lib/bot/formatters';
 import {
   createLeaveRequest,
   type CreateLeaveRequestInput,
@@ -68,7 +69,7 @@ Pravila za tim (svi članovi projekta):
 - Za pitanja tko je na odmoru koristi get_team_on_leave, get_team_on_leave_today ili get_team_on_leave_this_week.
 - Za postotak preklapanja tima na godišnjem koristi get_vacation_overlap.
 - Ne otkrivaj podatke projekata gdje korisnik nije član.
-- Formatiraj odgovor kao kratku listu imena i datuma (bez UUID-ova).
+- NIKAD ne izmišljaj imena, datume ni brojeve — podaci dolaze isključivo iz alata (baze).
 
 Pravila za lead/admin:
 - Za pending zahtjeve koristi list_pending_team_requests.
@@ -249,6 +250,7 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
   let pending: PendingBotAction | null = pendingAction;
   const previousToken = pending?.token ?? null;
   const newHistory: ChatMessage[] = [...history];
+  const formattedReadParts: string[] = [];
 
   for (let step = 0; step < 5 && assistantMessage?.tool_calls?.length; step += 1) {
     openAiMessages.push({
@@ -261,6 +263,11 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
       const args = JSON.parse(toolCall.function.arguments || '{}') as Record<string, unknown>;
       const result = await executeBotTool(ctx, toolCall.function.name, args);
       const resultText = JSON.stringify(result);
+
+      if (READ_ONLY_FORMAT_TOOLS.has(toolCall.function.name)) {
+        const formatted = formatToolResult(toolCall.function.name, result);
+        if (formatted) formattedReadParts.push(formatted);
+      }
 
       openAiMessages.push({
         role: 'tool',
@@ -327,6 +334,7 @@ async function handleChatMessage(chatId: string, userId: string, text: string) {
   }
 
   const replyText =
+    (formattedReadParts.length > 0 ? formattedReadParts.join('\n\n') : null) ||
     assistantMessage?.content?.trim() ||
     'Nisam uspio obraditi poruku. Pokušajte ponovo s jasnijim pitanjem.';
 

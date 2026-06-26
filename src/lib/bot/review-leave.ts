@@ -1,4 +1,4 @@
-import { assertCanReview } from '@/lib/bot/permissions';
+import { assertCanReview } from '@/lib/projects/membership';
 import { leaveRequestProjectEmbed, leaveRequestUserEmbed } from '@/lib/leave/queries';
 import type { AppSupabase } from '@/lib/supabase/app-client';
 import type { ReviewLeaveAction } from '@/lib/leave/review-request';
