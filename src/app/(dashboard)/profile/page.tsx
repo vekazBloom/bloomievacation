@@ -62,7 +62,7 @@ export default async function ProfilePage() {
       </div>
 
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="space-y-6 p-6">
           <div className="flex items-center gap-5">
             <Avatar className="h-20 w-20">
               {profile?.avatar_url && (
@@ -82,21 +82,19 @@ export default async function ProfilePage() {
               )}
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <div className="border-b border-border px-6 py-4">
-          <h2 className="font-display text-lg">Telegram bot</h2>
-          <p className="text-sm text-muted-foreground">
-            Povežite račun za slanje zahtjeva za godišnji odmor putem Telegrama.
-          </p>
-        </div>
-        <CardContent className="p-6">
-          <PhoneForm
-            initialPhone={profileRow?.phone_number ?? null}
-            botUsername={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? null}
-          />
+          <div className="border-t border-border pt-6">
+            <h3 className="font-display text-lg">Telegram bot</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Povežite račun za slanje zahtjeva za godišnji odmor putem Telegrama.
+            </p>
+            <div className="mt-4">
+              <PhoneForm
+                initialPhone={profileRow?.phone_number ?? null}
+                botUsername={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? null}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 

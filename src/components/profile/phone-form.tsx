@@ -7,29 +7,26 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 type Props = {
-  initialPhone: string | null;
+  initialPhone?: string | null;
   botUsername?: string | null;
 };
 
-export function PhoneForm({ initialPhone, botUsername }: Props) {
+export function PhoneForm({ initialPhone = null, botUsername }: Props) {
   const [phoneNumber, setPhoneNumber] = useState(initialPhone ?? '');
-  const [isLoading, setIsLoading] = useState(!initialPhone);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (initialPhone !== null) return;
     async function loadPhone() {
       const response = await fetch('/api/profile/phone');
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setIsLoading(false);
-        return;
+      if (response.ok) {
+        setPhoneNumber(payload.phoneNumber ?? '');
       }
-      setPhoneNumber(payload.phoneNumber ?? '');
       setIsLoading(false);
     }
     void loadPhone();
-  }, [initialPhone]);
+  }, []);
 
   async function savePhone() {
     setIsSaving(true);

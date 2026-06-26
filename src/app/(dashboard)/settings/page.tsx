@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { PhoneForm } from '@/components/profile/phone-form';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 
@@ -62,6 +63,18 @@ export default function SettingsPage() {
               onChange={(event) => updatePreference(event.target.checked)}
             />
           </Label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-4 p-6">
+          <div>
+            <h2 className="font-display text-lg">Telegram bot</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Phone number for linking your Telegram account.
+            </p>
+          </div>
+          <PhoneForm botUsername={process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME ?? null} />
         </CardContent>
       </Card>
     </div>
