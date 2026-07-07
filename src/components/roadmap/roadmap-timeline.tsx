@@ -21,7 +21,9 @@ import { RoadmapItemDialog } from '@/components/roadmap/roadmap-item-dialog';
 
 const LABEL_W = 190;
 const MIN_COL = 104;
-const ROW_H = 52;
+// Row pitch per stacked feature. Boxes leave a vertical gap inside this pitch so a
+// dependency connector between stacked rows has clear space to be seen.
+const ROW_H = 66;
 
 type DragState = { id: string; startIdx: number; endIdx: number } | null;
 
@@ -422,8 +424,8 @@ function SwimLane({
                 d={c.d}
                 fill="none"
                 stroke="hsl(var(--foreground))"
-                strokeOpacity={0.45}
-                strokeWidth={1.5}
+                strokeOpacity={0.55}
+                strokeWidth={2}
                 markerEnd={`url(#rm-arrow-${team.id})`}
               />
             ))}
@@ -437,7 +439,7 @@ function SwimLane({
             <div
               key={item.id}
               className={cn(
-                'group relative m-1 flex cursor-grab flex-col justify-center overflow-hidden rounded-lg border px-2 py-1 text-xs select-none',
+                'group relative mx-1 my-2.5 flex cursor-grab flex-col justify-center overflow-hidden rounded-lg border px-2 py-1 text-xs select-none',
                 custom ? 'border' : statusChipClasses(item.status),
                 dragged && 'ring-2 ring-ring'
               )}
