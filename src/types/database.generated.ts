@@ -920,6 +920,7 @@ export type Database = {
       }
       roadmap_items: {
         Row: {
+          color: string | null
           created_at: string
           dependencies: string | null
           end_month: string | null
@@ -934,6 +935,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          color?: string | null
           created_at?: string
           dependencies?: string | null
           end_month?: string | null
@@ -948,6 +950,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          color?: string | null
           created_at?: string
           dependencies?: string | null
           end_month?: string | null

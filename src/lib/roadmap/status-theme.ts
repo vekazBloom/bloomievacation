@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { RoadmapItemStatus } from '@/types/database';
 
 /**
@@ -34,3 +35,24 @@ export const STATUS_ORDER: RoadmapItemStatus[] = [
   'waiting',
   'planned',
 ];
+
+/**
+ * Preset chip colors offered in the edit modal. All are dark enough to read
+ * white text, so a custom-colored chip renders as a solid swatch with white text
+ * (distinct from the pale status chips). Stored on the item as `color` (#RRGGBB).
+ */
+export const CHIP_COLORS: Array<{ hex: string; name: string }> = [
+  { hex: '#6D28D9', name: 'Violet' },
+  { hex: '#1D4ED8', name: 'Blue' },
+  { hex: '#0F766E', name: 'Teal' },
+  { hex: '#047857', name: 'Green' },
+  { hex: '#B45309', name: 'Amber' },
+  { hex: '#C2410C', name: 'Orange' },
+  { hex: '#BE123C', name: 'Rose' },
+  { hex: '#475569', name: 'Slate' },
+];
+
+/** Inline style for a chip with a custom color override (solid fill, white text). */
+export function customChipStyle(hex: string): CSSProperties {
+  return { backgroundColor: hex, borderColor: hex, color: '#ffffff' };
+}

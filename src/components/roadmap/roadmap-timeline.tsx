@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { Plus, User, Link2, GripVertical, Pencil } from 'lucide-react';
+import { Plus, User, Link2, GripVertical, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -10,7 +10,12 @@ import {
   monthSpanLength,
   type RoadmapMonth,
 } from '@/lib/roadmap/months';
-import { STATUS_LABELS, STATUS_ORDER, statusChipClasses } from '@/lib/roadmap/status-theme';
+import {
+  STATUS_LABELS,
+  STATUS_ORDER,
+  customChipStyle,
+  statusChipClasses,
+} from '@/lib/roadmap/status-theme';
 import type { RoadmapData, RoadmapItem, RoadmapTeamWithMembers } from '@/lib/read/roadmap';
 import { RoadmapItemDialog } from '@/components/roadmap/roadmap-item-dialog';
 
@@ -88,6 +93,25 @@ export function RoadmapTimeline({ initial }: { initial: RoadmapData }) {
     } catch (err) {
       setItems(prev);
       toast.error(err instanceof Error ? err.message : 'Could not save the change');
+    }
+  }
+
+  async function deleteItem(id: string) {
+    if (typeof window !== 'undefined' && !window.confirm('Remove this feature from the roadmap?')) {
+      return;
+    }
+    const prev = items;
+    setItems((cur) => cur.filter((i) => i.id !== id));
+    try {
+      const res = await fetch(`/api/roadmap/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || 'Could not remove the feature');
+      }
+      toast.success('Feature removed');
+    } catch (err) {
+      setItems(prev);
+      toast.error(err instanceof Error ? err.message : 'Could not remove the feature');
     }
   }
 
@@ -209,11 +233,20 @@ export function RoadmapTimeline({ initial }: { initial: RoadmapData }) {
               drag={drag}
               onBeginDrag={beginDrag}
               onEditItem={(item) => setDialog({ open: true, mode: 'edit', item })}
+              onDeleteItem={deleteItem}
               onAddToTeam={(teamId) => setDialog({ open: true, mode: 'create', defaultTeamId: teamId })}
             />
           ))}
         </div>
       </div>
+
+      <Backlog
+        teams={initial.teams}
+        itemsByTeam={itemsByTeam}
+        onEditItem={(item) => setDialog({ open: true, mode: 'edit', item })}
+        onDeleteItem={deleteItem}
+        onAddToTeam={(teamId) => setDialog({ open: true, mode: 'create', defaultTeamId: teamId })}
+      />
 
       {dialog.open ? (
         <RoadmapItemDialog
@@ -250,6 +283,7 @@ function SwimLane({
   drag,
   onBeginDrag,
   onEditItem,
+  onDeleteItem,
   onAddToTeam,
 }: {
   team: RoadmapTeamWithMembers;
@@ -265,11 +299,11 @@ function SwimLane({
     trackEl: HTMLDivElement | null
   ) => void;
   onEditItem: (item: RoadmapItem) => void;
+  onDeleteItem: (id: string) => void;
   onAddToTeam: (teamId: string) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const scheduled = items.filter((i) => i.start_month && i.end_month);
-  const unscheduled = items.filter((i) => !i.start_month || !i.end_month);
   const { rowById, rowCount } = assignRows(scheduled, idxOf);
   const trackHeight = rowCount * ROW_H + 8;
   const isSpecial = team.kind !== 'engineering';
@@ -304,25 +338,6 @@ function SwimLane({
             {team.members.map((m) => m.name).join(' · ')}
           </p>
         ) : null}
-        {unscheduled.length > 0 ? (
-          <div className="mt-1 flex flex-wrap gap-1 pl-[18px]">
-            {unscheduled.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onEditItem(item)}
-                title={`${item.title} — click to schedule`}
-                className={cn(
-                  'inline-flex max-w-full items-center gap-1 truncate rounded-md border px-1.5 py-0.5 text-[10px]',
-                  statusChipClasses(item.status)
-                )}
-              >
-                <span className="truncate">{item.title}</span>
-                {item.dependencies ? <Link2 className="h-3 w-3 shrink-0" /> : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
       </div>
 
       <div
@@ -344,22 +359,38 @@ function SwimLane({
           const endIdx = dragged ? dragged.endIdx : idxOf(item.end_month);
           const row = rowById.get(item.id) ?? 0;
           const spanMonths = monthSpanLength(item.start_month!, item.end_month!) + 1;
+          const custom = item.color ? customChipStyle(item.color) : null;
           return (
             <div
               key={item.id}
               className={cn(
                 'group relative m-1 flex cursor-grab flex-col justify-center overflow-hidden rounded-lg border px-2 py-1 text-xs select-none',
-                statusChipClasses(item.status),
+                custom ? 'border' : statusChipClasses(item.status),
                 dragged && 'ring-2 ring-ring'
               )}
-              style={{ gridColumn: `${startIdx + 1} / ${endIdx + 2}`, gridRow: row + 1 }}
+              style={{
+                gridColumn: `${startIdx + 1} / ${endIdx + 2}`,
+                gridRow: row + 1,
+                ...(custom ?? {}),
+              }}
               onPointerDown={(e) => onBeginDrag(e, item, 'move', trackRef.current)}
               title={item.dependencies ? `Depends on: ${item.dependencies}` : undefined}
             >
               <div className="flex items-center gap-1 font-medium leading-tight">
                 <span className="truncate">{item.title}</span>
                 {item.dependencies ? <Link2 className="h-3 w-3 shrink-0" /> : null}
-                <Pencil className="ml-auto hidden h-3 w-3 shrink-0 opacity-60 group-hover:block" />
+                <button
+                  type="button"
+                  className="relative z-10 ml-auto mr-1 hidden shrink-0 rounded p-0.5 opacity-70 hover:bg-black/10 hover:opacity-100 group-hover:block"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteItem(item.id);
+                  }}
+                  aria-label={`Remove ${item.title}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
               {item.owner ? (
                 <div className="flex items-center gap-1 truncate text-[11px] opacity-90">
@@ -384,6 +415,101 @@ function SwimLane({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function Backlog({
+  teams,
+  itemsByTeam,
+  onEditItem,
+  onDeleteItem,
+  onAddToTeam,
+}: {
+  teams: RoadmapTeamWithMembers[];
+  itemsByTeam: Map<string, RoadmapItem[]>;
+  onEditItem: (item: RoadmapItem) => void;
+  onDeleteItem: (id: string) => void;
+  onAddToTeam: (teamId: string) => void;
+}) {
+  const rows = teams
+    .map((team) => ({
+      team,
+      unscheduled: (itemsByTeam.get(team.id) ?? []).filter(
+        (i) => !i.start_month || !i.end_month
+      ),
+    }))
+    .filter((r) => r.unscheduled.length > 0);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-6 rounded-xl border border-border bg-card p-4">
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-2">
+        <h2 className="font-display text-lg">Unscheduled backlog</h2>
+        <span className="text-xs text-muted-foreground">
+          Features without a month — click to schedule, × to remove.
+        </span>
+      </div>
+      <div className="divide-y divide-border">
+        {rows.map(({ team, unscheduled }) => (
+          <div key={team.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+            <div
+              className="flex w-40 shrink-0 items-center gap-2 pl-2"
+              style={{ borderLeft: `3px solid ${team.color}` }}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: team.color }}
+                aria-hidden
+              />
+              <span className="truncate text-sm font-medium">{team.name}</span>
+            </div>
+            <div className="flex flex-1 flex-wrap items-center gap-1.5">
+              {unscheduled.map((item) => {
+                const custom = item.color ? customChipStyle(item.color) : null;
+                return (
+                  <span
+                    key={item.id}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs',
+                      custom ? 'border' : statusChipClasses(item.status)
+                    )}
+                    style={custom ?? undefined}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onEditItem(item)}
+                      title={`${item.title} — click to schedule`}
+                      className="max-w-[240px] truncate font-medium"
+                    >
+                      {item.title}
+                    </button>
+                    {item.owner ? <span className="opacity-80">· {item.owner}</span> : null}
+                    {item.dependencies ? <Link2 className="h-3 w-3 shrink-0" /> : null}
+                    <button
+                      type="button"
+                      onClick={() => onDeleteItem(item.id)}
+                      aria-label={`Remove ${item.title}`}
+                      className="ml-0.5 rounded p-0.5 opacity-70 hover:bg-black/10 hover:opacity-100"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => onAddToTeam(team.id)}
+                className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <Plus className="h-3 w-3" />
+                Add
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

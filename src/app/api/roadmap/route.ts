@@ -6,6 +6,8 @@ import { monthSpanError } from '@/lib/roadmap/validation';
 
 const firstOfMonth = z.string().regex(/^\d{4}-\d{2}-01$/, 'Expected a first-of-month date (YYYY-MM-01)');
 
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Expected a #RRGGBB color');
+
 const createSchema = z.object({
   team_id: z.string().uuid(),
   title: z.string().min(1).max(200),
@@ -15,6 +17,7 @@ const createSchema = z.object({
   owner: z.union([z.string().max(200), z.null()]).optional(),
   dependencies: z.union([z.string().max(500), z.null()]).optional(),
   notes: z.union([z.string().max(1000), z.null()]).optional(),
+  color: z.union([hexColor, z.null()]).optional(),
   sort_order: z.number().int().optional(),
 });
 
@@ -52,6 +55,9 @@ export async function POST(request: NextRequest) {
       owner: parsed.data.owner ?? null,
       dependencies: parsed.data.dependencies ?? null,
       notes: parsed.data.notes ?? null,
+      // Only reference `color` when actually provided, so creating features keeps
+      // working even before migration 033 (the color column) is applied.
+      ...(parsed.data.color !== undefined ? { color: parsed.data.color } : {}),
       ...(parsed.data.sort_order !== undefined ? { sort_order: parsed.data.sort_order } : {}),
     })
     .select('*')

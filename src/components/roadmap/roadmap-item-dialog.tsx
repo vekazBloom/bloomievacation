@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { STATUS_LABELS, STATUS_ORDER } from '@/lib/roadmap/status-theme';
+import { CHIP_COLORS, STATUS_LABELS, STATUS_ORDER } from '@/lib/roadmap/status-theme';
 import type { RoadmapMonth } from '@/lib/roadmap/months';
 import type { RoadmapItem, RoadmapTeamWithMembers } from '@/lib/read/roadmap';
 import type { RoadmapItemStatus } from '@/types/database';
@@ -43,6 +43,7 @@ export function RoadmapItemDialog({
   const [endMonth, setEndMonth] = useState(item?.end_month ?? '');
   const [dependencies, setDependencies] = useState(item?.dependencies ?? '');
   const [notes, setNotes] = useState(item?.notes ?? '');
+  const [color, setColor] = useState<string | null>(item?.color ?? null);
   const [busy, setBusy] = useState(false);
 
   const team = teams.find((t) => t.id === teamId);
@@ -67,6 +68,7 @@ export function RoadmapItemDialog({
       end_month: end,
       dependencies: dependencies.trim() || null,
       notes: notes.trim() || null,
+      color,
     };
 
     setBusy(true);
@@ -251,6 +253,38 @@ export function RoadmapItemDialog({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Optional"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Chip color</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setColor(null)}
+                  className={cn(
+                    'flex h-7 items-center gap-1 rounded-md border px-2 text-xs',
+                    color === null
+                      ? 'border-foreground bg-accent'
+                      : 'border-border text-muted-foreground hover:bg-accent/50'
+                  )}
+                >
+                  By status
+                </button>
+                {CHIP_COLORS.map((c) => (
+                  <button
+                    key={c.hex}
+                    type="button"
+                    title={c.name}
+                    aria-label={c.name}
+                    onClick={() => setColor(c.hex)}
+                    className={cn(
+                      'h-7 w-7 rounded-md border-2',
+                      color === c.hex ? 'border-foreground' : 'border-transparent'
+                    )}
+                    style={{ backgroundColor: c.hex }}
+                  />
+                ))}
+              </div>
             </div>
 
             <div className={cn('flex items-center gap-2 pt-2', mode === 'edit' && 'justify-between')}>
