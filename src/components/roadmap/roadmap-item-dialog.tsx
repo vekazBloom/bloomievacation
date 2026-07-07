@@ -20,6 +20,7 @@ export function RoadmapItemDialog({
   mode,
   teams,
   months,
+  allItems,
   item,
   defaultTeamId,
   onClose,
@@ -29,6 +30,7 @@ export function RoadmapItemDialog({
   mode: 'create' | 'edit';
   teams: RoadmapTeamWithMembers[];
   months: RoadmapMonth[];
+  allItems: RoadmapItem[];
   item?: RoadmapItem;
   defaultTeamId?: string;
   onClose: () => void;
@@ -44,9 +46,11 @@ export function RoadmapItemDialog({
   const [dependencies, setDependencies] = useState(item?.dependencies ?? '');
   const [notes, setNotes] = useState(item?.notes ?? '');
   const [color, setColor] = useState<string | null>(item?.color ?? null);
+  const [dependsOn, setDependsOn] = useState<string>(item?.depends_on_id ?? '');
   const [busy, setBusy] = useState(false);
 
   const team = teams.find((t) => t.id === teamId);
+  const dependencyOptions = allItems.filter((i) => i.team_id === teamId && i.id !== item?.id);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,6 +73,7 @@ export function RoadmapItemDialog({
       dependencies: dependencies.trim() || null,
       notes: notes.trim() || null,
       color,
+      depends_on_id: dependsOn || null,
     };
 
     setBusy(true);
@@ -148,7 +153,10 @@ export function RoadmapItemDialog({
                   id="rm-team"
                   className={fieldClass}
                   value={teamId}
-                  onChange={(e) => setTeamId(e.target.value)}
+                  onChange={(e) => {
+                    setTeamId(e.target.value);
+                    setDependsOn('');
+                  }}
                 >
                   {teams.map((t) => (
                     <option key={t.id} value={t.id}>
@@ -236,7 +244,27 @@ export function RoadmapItemDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="rm-deps">Dependencies</Label>
+              <Label htmlFor="rm-depends-on">Depends on</Label>
+              <select
+                id="rm-depends-on"
+                className={fieldClass}
+                value={dependsOn}
+                onChange={(e) => setDependsOn(e.target.value)}
+              >
+                <option value="">None</option>
+                {dependencyOptions.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.title}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                Draws a connector line from that feature to this one (same team).
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="rm-deps">Dependency note</Label>
               <Input
                 id="rm-deps"
                 value={dependencies}

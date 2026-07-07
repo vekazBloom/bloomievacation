@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, User, Link2, GripVertical, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -254,6 +254,7 @@ export function RoadmapTimeline({ initial }: { initial: RoadmapData }) {
           mode={dialog.mode}
           teams={initial.teams}
           months={months}
+          allItems={items}
           item={dialog.mode === 'edit' ? dialog.item : undefined}
           defaultTeamId={dialog.mode === 'create' ? dialog.defaultTeamId : undefined}
           onClose={() => setDialog({ open: false })}
@@ -303,10 +304,54 @@ function SwimLane({
   onAddToTeam: (teamId: string) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const [trackW, setTrackW] = useState(0);
   const scheduled = items.filter((i) => i.start_month && i.end_month);
   const { rowById, rowCount } = assignRows(scheduled, idxOf);
   const trackHeight = rowCount * ROW_H + 8;
   const isSpecial = team.kind !== 'engineering';
+
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    setTrackW(el.getBoundingClientRect().width);
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setTrackW(entry.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Geometry per scheduled item (start/end column + row), honoring the live drag.
+  const geom = scheduled.map((item) => {
+    const dragged = drag && drag.id === item.id ? drag : null;
+    return {
+      item,
+      startIdx: dragged ? dragged.startIdx : idxOf(item.start_month),
+      endIdx: dragged ? dragged.endIdx : idxOf(item.end_month),
+      row: rowById.get(item.id) ?? 0,
+    };
+  });
+  const geomById = new Map(geom.map((g) => [g.item.id, g]));
+
+  const colW = months.length > 0 ? trackW / months.length : 0;
+  // Dependency connectors: prerequisite → dependent, both scheduled in this team.
+  const connectors =
+    colW > 0
+      ? geom
+          .filter((g) => g.item.depends_on_id && geomById.has(g.item.depends_on_id))
+          .map((target) => {
+            const source = geomById.get(target.item.depends_on_id!)!;
+            const x1 = (source.endIdx + 1) * colW - 4;
+            const y1 = source.row * ROW_H + ROW_H / 2;
+            const x2 = target.startIdx * colW + 6;
+            const y2 = target.row * ROW_H + ROW_H / 2;
+            const midX = (x1 + x2) / 2;
+            return {
+              id: target.item.id,
+              d: `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`,
+            };
+          })
+      : [];
 
   return (
     <div
@@ -353,13 +398,41 @@ function SwimLane({
           ['--cols' as string]: String(months.length),
         }}
       >
-        {scheduled.map((item) => {
-          const dragged = drag && drag.id === item.id ? drag : null;
-          const startIdx = dragged ? dragged.startIdx : idxOf(item.start_month);
-          const endIdx = dragged ? dragged.endIdx : idxOf(item.end_month);
-          const row = rowById.get(item.id) ?? 0;
+        {connectors.length > 0 ? (
+          <svg
+            className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+            style={{ gridColumn: `1 / span ${months.length}`, gridRow: `1 / span ${rowCount}` }}
+            aria-hidden
+          >
+            <defs>
+              <marker
+                id={`rm-arrow-${team.id}`}
+                markerWidth="7"
+                markerHeight="7"
+                refX="5.5"
+                refY="3"
+                orient="auto"
+              >
+                <path d="M0,0 L6,3 L0,6 Z" fill="hsl(var(--foreground))" />
+              </marker>
+            </defs>
+            {connectors.map((c) => (
+              <path
+                key={c.id}
+                d={c.d}
+                fill="none"
+                stroke="hsl(var(--foreground))"
+                strokeOpacity={0.45}
+                strokeWidth={1.5}
+                markerEnd={`url(#rm-arrow-${team.id})`}
+              />
+            ))}
+          </svg>
+        ) : null}
+        {geom.map(({ item, startIdx, endIdx, row }) => {
           const spanMonths = monthSpanLength(item.start_month!, item.end_month!) + 1;
           const custom = item.color ? customChipStyle(item.color) : null;
+          const dragged = drag?.id === item.id;
           return (
             <div
               key={item.id}

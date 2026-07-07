@@ -18,6 +18,7 @@ const createSchema = z.object({
   dependencies: z.union([z.string().max(500), z.null()]).optional(),
   notes: z.union([z.string().max(1000), z.null()]).optional(),
   color: z.union([hexColor, z.null()]).optional(),
+  depends_on_id: z.union([z.string().uuid(), z.null()]).optional(),
   sort_order: z.number().int().optional(),
 });
 
@@ -55,9 +56,12 @@ export async function POST(request: NextRequest) {
       owner: parsed.data.owner ?? null,
       dependencies: parsed.data.dependencies ?? null,
       notes: parsed.data.notes ?? null,
-      // Only reference `color` when actually provided, so creating features keeps
-      // working even before migration 033 (the color column) is applied.
+      // Only reference newer columns when actually provided, so creating features
+      // keeps working even before migrations 033/034 (color, depends_on_id) are applied.
       ...(parsed.data.color !== undefined ? { color: parsed.data.color } : {}),
+      ...(parsed.data.depends_on_id !== undefined
+        ? { depends_on_id: parsed.data.depends_on_id }
+        : {}),
       ...(parsed.data.sort_order !== undefined ? { sort_order: parsed.data.sort_order } : {}),
     })
     .select('*')

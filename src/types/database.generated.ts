@@ -923,6 +923,7 @@ export type Database = {
           color: string | null
           created_at: string
           dependencies: string | null
+          depends_on_id: string | null
           end_month: string | null
           id: string
           notes: string | null
@@ -938,6 +939,7 @@ export type Database = {
           color?: string | null
           created_at?: string
           dependencies?: string | null
+          depends_on_id?: string | null
           end_month?: string | null
           id?: string
           notes?: string | null
@@ -953,6 +955,7 @@ export type Database = {
           color?: string | null
           created_at?: string
           dependencies?: string | null
+          depends_on_id?: string | null
           end_month?: string | null
           id?: string
           notes?: string | null

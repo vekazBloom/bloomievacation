@@ -16,6 +16,7 @@ const patchSchema = z.object({
   dependencies: z.union([z.string().max(500), z.null()]).optional(),
   notes: z.union([z.string().max(1000), z.null()]).optional(),
   color: z.union([hexColor, z.null()]).optional(),
+  depends_on_id: z.union([z.string().uuid(), z.null()]).optional(),
   sort_order: z.number().int().optional(),
 });
 
@@ -57,6 +58,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { itemId
     'dependencies',
     'notes',
     'color',
+    'depends_on_id',
     'sort_order',
   ] as const) {
     if (parsed.data[key] !== undefined) updatePayload[key] = parsed.data[key];
