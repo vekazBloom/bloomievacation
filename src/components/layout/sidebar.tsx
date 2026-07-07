@@ -16,6 +16,7 @@ import {
   CalendarPlus,
   MailPlus,
   BarChart3,
+  GanttChartSquare,
 } from 'lucide-react';
 import { RemoteImage } from '@/components/ui/remote-image';
 import { Button } from '@/components/ui/button';
@@ -65,6 +66,7 @@ export function Sidebar({
   ];
 
   const adminItems = [
+    { href: '/roadmap', label: 'Roadmap', icon: GanttChartSquare },
     { href: '/admin/jira-settings', label: 'Jira settings', icon: Link2 },
     { href: '/admin/holidays', label: 'Holidays', icon: ShieldCheck },
     { href: '/admin/users-without-projects', label: 'Users without projects', icon: UserX },

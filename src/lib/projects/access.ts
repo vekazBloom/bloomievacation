@@ -34,6 +34,12 @@ export async function canEditMemberLeaveBalances(userId: string) {
   return Boolean(profile?.is_system_admin);
 }
 
+/** System admin only — view and edit the engineering roadmap. */
+export async function canManageRoadmap(userId: string) {
+  const profile = await getUserProfile(userId);
+  return Boolean(profile?.is_system_admin);
+}
+
 /** Any project admin or system admin — used for global annual fund templates (shared across projects). */
 export async function canManageGlobalAnnualFundDefinitions(userId: string) {
   const profile = await getUserProfile(userId);

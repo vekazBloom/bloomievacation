@@ -850,6 +850,127 @@ export type Database = {
           },
         ]
       }
+      roadmap_teams: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["roadmap_team_kind"]
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color: string
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["roadmap_team_kind"]
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["roadmap_team_kind"]
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      roadmap_team_members: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          role_label: string | null
+          sort_order: number
+          team_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          role_label?: string | null
+          sort_order?: number
+          team_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          role_label?: string | null
+          sort_order?: number
+          team_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_team_members_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roadmap_items: {
+        Row: {
+          created_at: string
+          dependencies: string | null
+          end_month: string | null
+          id: string
+          notes: string | null
+          owner: string | null
+          sort_order: number
+          start_month: string | null
+          status: Database["public"]["Enums"]["roadmap_item_status"]
+          team_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          dependencies?: string | null
+          end_month?: string | null
+          id?: string
+          notes?: string | null
+          owner?: string | null
+          sort_order?: number
+          start_month?: string | null
+          status?: Database["public"]["Enums"]["roadmap_item_status"]
+          team_id: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          dependencies?: string | null
+          end_month?: string | null
+          id?: string
+          notes?: string | null
+          owner?: string | null
+          sort_order?: number
+          start_month?: string | null
+          status?: Database["public"]["Enums"]["roadmap_item_status"]
+          team_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roadmap_items_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "roadmap_teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           avatar_url: string | null
@@ -937,6 +1058,8 @@ export type Database = {
         | "carry_over_warning"
         | "project_added"
       project_role: "admin" | "lead" | "employee"
+      roadmap_item_status: "completed" | "in_progress" | "planned" | "waiting"
+      roadmap_team_kind: "engineering" | "bt" | "future"
       religion_category:
         | "islam"
         | "christianity_catholic"
