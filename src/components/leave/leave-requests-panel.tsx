@@ -38,6 +38,18 @@ function allocationRows(request: { leave_request_grant_allocations?: RequestAllo
   return raw.filter((row) => row.grant_id);
 }
 
+function dayCount(days: number) {
+  return `${days} working day${days === 1 ? '' : 's'}`;
+}
+
+/** Explains, in the reviewer's terms, what moving the dates does to the employee's balance. */
+function balanceDeltaLabel(previousDays: number, nextDays: number, employeeName: string) {
+  const delta = Math.round((nextDays - previousDays) * 10) / 10;
+  if (delta === 0) return 'Same number of working days — balance unchanged.';
+  if (delta < 0) return `${dayCount(Math.abs(delta))} returned to ${employeeName}.`;
+  return `${dayCount(delta)} taken from ${employeeName}.`;
+}
+
 export function LeaveRequestsPanel({
   requests,
   canReview,
@@ -68,6 +80,11 @@ export function LeaveRequestsPanel({
   const [annualFundSplits, setAnnualFundSplits] = useState<Record<string, string>>({});
   const [sickPools, setSickPools] = useState<SickLeavePoolOption[]>([]);
   const [sickPoolProjectId, setSickPoolProjectId] = useState('');
+  const [decisionStartDate, setDecisionStartDate] = useState('');
+  const [decisionEndDate, setDecisionEndDate] = useState('');
+  const [previewDays, setPreviewDays] = useState<number | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const pendingCount = requests.filter((request) => request.status === 'pending').length;
   const decisionRequest = rejectingId ? requests.find((r) => r.id === rejectingId) : null;
@@ -129,6 +146,61 @@ export function LeaveRequestsPanel({
     };
   }, [rejectingId, canEditRequestFunds, decisionRequest, supabase]);
 
+  const decisionDatesChanged = Boolean(
+    decisionRequest &&
+      (decisionStartDate !== decisionRequest.start_date ||
+        decisionEndDate !== decisionRequest.end_date)
+  );
+
+  /** Working days depend on national holidays, so only the server can recompute them. */
+  useEffect(() => {
+    if (!rejectingId || !decisionRequest || !decisionStartDate || !decisionEndDate) return;
+
+    if (
+      decisionStartDate === decisionRequest.start_date &&
+      decisionEndDate === decisionRequest.end_date
+    ) {
+      setPreviewDays(null);
+      setPreviewError(null);
+      return;
+    }
+
+    if (decisionEndDate < decisionStartDate) {
+      setPreviewDays(null);
+      setPreviewError('End date must be on or after the start date.');
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewLoading(true);
+    const timer = setTimeout(() => {
+      void (async () => {
+        const query = new URLSearchParams({
+          projectId: decisionRequest.project_id,
+          startDate: decisionStartDate,
+          endDate: decisionEndDate,
+          excludeRequestId: decisionRequest.id,
+        });
+        const response = await fetch(`/api/leave-requests/preview?${query}`);
+        const body = await response.json().catch(() => ({}));
+        if (cancelled) return;
+        setPreviewLoading(false);
+        if (!response.ok) {
+          setPreviewDays(null);
+          setPreviewError(body.error || 'Could not work out the new working days.');
+          return;
+        }
+        setPreviewError(null);
+        setPreviewDays(Number(body.workingDays ?? 0));
+      })();
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [rejectingId, decisionRequest, decisionStartDate, decisionEndDate]);
+
   function resetFundEditor() {
     setAnnualFundGrantId('');
     setAnnualFundSplits({});
@@ -140,6 +212,11 @@ export function LeaveRequestsPanel({
   function closeDecisionEditor() {
     setRejectingId(null);
     setDecisionNote('');
+    setDecisionStartDate('');
+    setDecisionEndDate('');
+    setPreviewDays(null);
+    setPreviewLoading(false);
+    setPreviewError(null);
     resetFundEditor();
   }
 
@@ -149,6 +226,8 @@ export function LeaveRequestsPanel({
     status: string;
     decision_note?: string | null;
     type: string;
+    start_date: string;
+    end_date: string;
     balance_project_id?: string | null;
     leave_request_grant_allocations?: RequestAllocationRow[] | null;
     },
@@ -157,6 +236,11 @@ export function LeaveRequestsPanel({
     setRejectingId(request.id);
     setDecisionAction(actionOverride ?? (request.status === 'approved' ? 'approve' : 'reject'));
     setDecisionNote(request.decision_note || '');
+    setDecisionStartDate(request.start_date);
+    setDecisionEndDate(request.end_date);
+    setPreviewDays(null);
+    setPreviewLoading(false);
+    setPreviewError(null);
 
     setSickPoolProjectId((request.balance_project_id as string | null) ?? '');
 
@@ -177,15 +261,14 @@ export function LeaveRequestsPanel({
     }
   }
 
-  function buildAnnualAllocationsPayload(request: {
-    type: string;
-    working_days_count: number | string;
-  }): { grantId: string; workingDays: number }[] | undefined {
+  function buildAnnualAllocationsPayload(
+    request: { type: string },
+    workingDays: number
+  ): { grantId: string; workingDays: number }[] | undefined {
     if (request.type !== 'annual' || !canEditRequestFunds || decisionAction !== 'approve') {
       return undefined;
     }
 
-    const workingDays = Number(request.working_days_count);
     if (!Number.isFinite(workingDays) || workingDays <= 0) return undefined;
 
     if (annualFundGrantId === '__split__') {
@@ -201,7 +284,10 @@ export function LeaveRequestsPanel({
       return parts;
     }
 
-    if (!annualFundGrantId) return undefined;
+    if (!annualFundGrantId) {
+      toast.error('Select which annual fund this request uses.');
+      return undefined;
+    }
     return [{ grantId: annualFundGrantId, workingDays }];
   }
 
@@ -277,6 +363,11 @@ export function LeaveRequestsPanel({
               request.type === 'sick' &&
               decisionAction === 'approve' &&
               sickPools.length > 0;
+            const storedWorkingDays = Number(request.working_days_count);
+            const datesEdited = isRejecting && decisionDatesChanged;
+            const effectiveWorkingDays =
+              datesEdited && previewDays != null ? previewDays : storedWorkingDays;
+            const employeeName = request.users?.name || 'the employee';
 
             return (
               <div key={request.id} className="space-y-3 px-6 py-4">
@@ -306,7 +397,12 @@ export function LeaveRequestsPanel({
                       <p className="mt-1 text-sm text-muted-foreground">{request.reason}</p>
                     ) : null}
                     {request.decision_note ? (
-                      <p className="mt-1 text-sm text-rose-700">Rejection note: {request.decision_note}</p>
+                      <p
+                        className={`mt-1 text-sm ${request.status === 'rejected' ? 'text-rose-700' : 'text-muted-foreground'}`}
+                      >
+                        {request.status === 'rejected' ? 'Rejection note' : 'Decision note'}:{' '}
+                        {request.decision_note}
+                      </p>
                     ) : null}
                     {request.attachment_url ? (
                       <Button
@@ -391,6 +487,51 @@ export function LeaveRequestsPanel({
                       <option value="reject">Reject</option>
                     </select>
 
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor={`decision-start-${request.id}`}
+                        >
+                          Start date
+                        </label>
+                        <Input
+                          id={`decision-start-${request.id}`}
+                          type="date"
+                          value={decisionStartDate}
+                          onChange={(event) => setDecisionStartDate(event.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor={`decision-end-${request.id}`}
+                        >
+                          End date
+                        </label>
+                        <Input
+                          id={`decision-end-${request.id}`}
+                          type="date"
+                          value={decisionEndDate}
+                          onChange={(event) => setDecisionEndDate(event.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {datesEdited ? (
+                      <p
+                        className={`text-xs ${previewError ? 'text-rose-700' : 'text-muted-foreground'}`}
+                      >
+                        {previewLoading
+                          ? 'Recalculating working days…'
+                          : previewError
+                            ? previewError
+                            : previewDays != null
+                              ? `Now ${dayCount(previewDays)}, was ${dayCount(storedWorkingDays)}. ${balanceDeltaLabel(storedWorkingDays, previewDays, employeeName)}`
+                              : null}
+                      </p>
+                    ) : null}
+
                     {showSickFundEditor ? (
                       <div className="space-y-2 rounded-md border border-dashed border-border bg-background/80 p-3">
                         <p className="text-sm font-medium">Sick leave pool (system admin)</p>
@@ -419,8 +560,8 @@ export function LeaveRequestsPanel({
                       <div className="space-y-2 rounded-md border border-dashed border-border bg-background/80 p-3">
                         <p className="text-sm font-medium">Annual fund (system admin)</p>
                         <p className="text-xs text-muted-foreground">
-                          Choose which entitlement fund this request uses ({request.working_days_count}{' '}
-                          working day{Number(request.working_days_count) === 1 ? '' : 's'} total).
+                          Choose which entitlement fund this request uses (
+                          {dayCount(effectiveWorkingDays)} total).
                         </p>
                         <select
                           value={annualFundGrantId}
@@ -490,13 +631,25 @@ export function LeaveRequestsPanel({
                       <Button
                         size="sm"
                         variant="outline"
+                        disabled={datesEdited && (previewLoading || previewDays == null)}
                         onClick={() => {
+                          if (datesEdited && previewError) {
+                            toast.error(previewError);
+                            return;
+                          }
                           const payload: Record<string, unknown> = {
                             action: decisionAction,
                             decisionNote: decisionNote.trim() || null,
                           };
+                          if (datesEdited) {
+                            payload.startDate = decisionStartDate;
+                            payload.endDate = decisionEndDate;
+                          }
                           if (showAnnualFundEditor) {
-                            const allocations = buildAnnualAllocationsPayload(request);
+                            const allocations = buildAnnualAllocationsPayload(
+                              request,
+                              effectiveWorkingDays
+                            );
                             if (!allocations) return;
                             payload.annualAllocations = allocations;
                           }
@@ -510,7 +663,11 @@ export function LeaveRequestsPanel({
                           void updateRequest(
                             request.id,
                             payload,
-                            decisionAction === 'approve' ? 'Request approved' : 'Request rejected'
+                            datesEdited && request.status === 'approved' && decisionAction === 'approve'
+                              ? 'Dates updated'
+                              : decisionAction === 'approve'
+                                ? 'Request approved'
+                                : 'Request rejected'
                           );
                         }}
                       >

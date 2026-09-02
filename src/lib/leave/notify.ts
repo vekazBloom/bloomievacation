@@ -1,5 +1,6 @@
 import {
   sendRequestApprovedEmail,
+  sendRequestDatesChangedEmail,
   sendRequestEditedEmail,
   sendRequestRejectedEmail,
   sendRequestSubmittedEmail,
@@ -139,6 +140,8 @@ export async function notifyRequestEdited(
     leaveType: LeaveType;
     startDate: string;
     endDate: string;
+    /** Reviewers who already know — typically whoever made the edit, and the employee. */
+    excludeUserIds?: string[];
   }
 ) {
   const { slug: projectSlug } = await getProjectSlugById(service, params.projectId);
@@ -151,8 +154,10 @@ export async function notifyRequestEdited(
     .in('role', ['admin', 'lead']);
 
   const dateRange = formatDateRange(params.startDate, params.endDate);
+  const skip = new Set(params.excludeUserIds ?? []);
 
   for (const reviewer of reviewers || []) {
+    if (skip.has(reviewer.user_id)) continue;
     const user = reviewer.users as { name?: string; email?: string } | null;
     await createInAppNotification(service, {
       userId: reviewer.user_id,
@@ -176,4 +181,77 @@ export async function notifyRequestEdited(
       });
     }
   }
+}
+
+/**
+ * A reviewer moved the dates of someone else's request. Unlike notifyRequestEdited — which tells
+ * reviewers that an employee changed something — this tells the employee, then keeps the rest of the
+ * review team in the loop.
+ */
+export async function notifyRequestDatesChanged(
+  service: ServiceClient,
+  params: {
+    requestId: string;
+    projectId: string;
+    projectName: string;
+    employeeUserId: string;
+    editorUserId: string;
+    editorName: string;
+    leaveType: LeaveType;
+    previousStartDate: string;
+    previousEndDate: string;
+    startDate: string;
+    endDate: string;
+    previousWorkingDays: number;
+    workingDays: number;
+  }
+) {
+  const { slug: projectSlug } = await getProjectSlugById(service, params.projectId);
+  if (!projectSlug) return;
+
+  const { data: employee } = await service
+    .from('users')
+    .select('name, email')
+    .eq('id', params.employeeUserId)
+    .maybeSingle();
+
+  const previousRange = formatDateRange(params.previousStartDate, params.previousEndDate);
+  const newRange = formatDateRange(params.startDate, params.endDate);
+
+  await createInAppNotification(service, {
+    userId: params.employeeUserId,
+    type: 'request_edited',
+    title: `Your ${params.leaveType} leave was moved to new dates`,
+    message: `${previousRange} → ${newRange}`,
+    link: projectPath(projectSlug, 'requests'),
+  });
+
+  if (employee?.email && (await shouldSendEmail(service, params.employeeUserId))) {
+    await sendRequestDatesChangedEmail({
+      to: employee.email,
+      employeeName: employee.name || 'there',
+      editorName: params.editorName,
+      projectName: params.projectName,
+      leaveType: params.leaveType,
+      previousStartDate: params.previousStartDate,
+      previousEndDate: params.previousEndDate,
+      startDate: params.startDate,
+      endDate: params.endDate,
+      previousWorkingDays: params.previousWorkingDays,
+      workingDays: params.workingDays,
+      requestId: params.requestId,
+      projectSlug,
+    });
+  }
+
+  await notifyRequestEdited(service, {
+    requestId: params.requestId,
+    projectId: params.projectId,
+    projectName: params.projectName,
+    editorName: params.editorName,
+    leaveType: params.leaveType,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    excludeUserIds: [params.editorUserId, params.employeeUserId],
+  });
 }

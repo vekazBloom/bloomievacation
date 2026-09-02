@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import {
+  notifyRequestDatesChanged,
   notifyRequestDecision,
   notifyRequestEdited,
 } from '@/lib/leave/notify';
+import {
+  allocationsChangeGrantSet,
+  resolveDateEditAllocations,
+} from '@/lib/leave/resolve-date-edit-allocations';
 import { reviewLeaveRequest } from '@/lib/leave/review-request';
 import { assertLeaveBalance } from '@/lib/leave/validate-request';
 import { canEditMemberLeaveBalances, canReviewLeave, getCurrentUser } from '@/lib/projects/access';
@@ -21,10 +26,12 @@ import { createServiceClient } from '@/lib/supabase/server';
 import { sendLeaveApprovalForwardCopies } from '@/lib/leave/approval-forward-email';
 import { leaveRequestProjectEmbed } from '@/lib/leave/queries';
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates must be YYYY-MM-DD');
+
 const updateSchema = z.object({
   action: z.enum(['approve', 'reject', 'cancel', 'edit']).optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
+  startDate: isoDate.optional(),
+  endDate: isoDate.optional(),
   reason: z.string().nullable().optional(),
   attachmentUrl: z.string().nullable().optional(),
   decisionNote: z.string().nullable().optional(),
@@ -67,7 +74,19 @@ export async function PATCH(
     const hasFundEdits =
       Boolean(allocationUpdate?.length) || Boolean(parsed.data.balanceProjectId);
 
-    if (!hasFundEdits) {
+    const startDate = parsed.data.startDate ?? existing.start_date;
+    const endDate = parsed.data.endDate ?? existing.end_date;
+    const datesChanged = startDate !== existing.start_date || endDate !== existing.end_date;
+
+    if (endDate < startDate) {
+      return NextResponse.json(
+        { error: 'End date must be on or after the start date.' },
+        { status: 400 }
+      );
+    }
+
+    /** Plain first-time decision with nothing else changing — the shared helper covers it. */
+    if (!hasFundEdits && !datesChanged && existing.status === 'pending') {
       const result = await reviewLeaveRequest(supabase, {
         requestId: params.id,
         reviewerId: user.id,
@@ -80,7 +99,30 @@ export async function PATCH(
       return NextResponse.json({ request: result.request });
     }
 
+    if (existing.user_id === user.id) {
+      return NextResponse.json({ error: 'Ne možete odobriti vlastiti zahtjev.' }, { status: 403 });
+    }
+
     const status = parsed.data.action === 'approve' ? 'approved' : 'rejected';
+    const statusChanged = existing.status !== status;
+
+    let workingDays = Number(existing.working_days_count);
+    if (datesChanged) {
+      const { data: recomputed, error: workingDaysError } = await supabase.rpc(
+        'calculate_working_days',
+        { p_start: startDate, p_end: endDate }
+      );
+      if (workingDaysError) {
+        return NextResponse.json({ error: workingDaysError.message }, { status: 500 });
+      }
+      workingDays = Number(recomputed ?? 0);
+      if (workingDays <= 0) {
+        return NextResponse.json(
+          { error: 'These dates contain no working days. Pick a range with at least one working day.' },
+          { status: 400 }
+        );
+      }
+    }
 
     if (status === 'rejected') {
       await supabase.from('leave_request_grant_allocations').delete().eq('leave_request_id', params.id);
@@ -100,21 +142,43 @@ export async function PATCH(
       balanceProjectUpdate = parsed.data.balanceProjectId;
     }
 
-    if (allocationUpdate?.length && existing.type === 'annual') {
-      if (!canReallocateFunds) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    /**
+     * Only re-derive the fund split when something forces it. Approving an untouched multi-fund
+     * request must leave its existing rows exactly as the employee created them.
+     */
+    let resolvedAllocations: AnnualAllocationInput[] | undefined;
+    if (status === 'approved' && existing.type === 'annual' && (datesChanged || allocationUpdate?.length)) {
+      const { data: currentAllocations } = await supabase
+        .from('leave_request_grant_allocations')
+        .select('grant_id, working_days')
+        .eq('leave_request_id', params.id);
+
+      const resolution = resolveDateEditAllocations({
+        workingDays,
+        existing: currentAllocations ?? [],
+        explicit: allocationUpdate,
+      });
+      if (!resolution.ok) {
+        return NextResponse.json({ error: resolution.error }, { status: 400 });
       }
-      const sum = allocationUpdate.reduce((total, row) => total + row.workingDays, 0);
-      if (Math.abs(sum - Number(existing.working_days_count)) > 0.02) {
-        return NextResponse.json(
-          { error: 'Fund day split must equal the request working days.' },
-          { status: 400 }
-        );
-      }
-      const grants = await fetchGrantsForUser(supabase, existing.user_id);
-      const explicitCheck = validateExplicitAnnualAllocations(grants, allocationUpdate);
-      if (!explicitCheck.ok) {
-        return NextResponse.json({ error: explicitCheck.error }, { status: 400 });
+      resolvedAllocations = resolution.allocations;
+
+      if (resolvedAllocations.length > 0) {
+        /**
+         * Rescaling the same fund is a consequence of the new dates, so any reviewer may do it.
+         * Moving days onto a different fund is a balance edit, reserved for system admins.
+         */
+        if (
+          allocationsChangeGrantSet(currentAllocations ?? [], resolvedAllocations) &&
+          !canReallocateFunds
+        ) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+        const grants = await fetchGrantsForUser(supabase, existing.user_id);
+        const explicitCheck = validateExplicitAnnualAllocations(grants, resolvedAllocations);
+        if (!explicitCheck.ok) {
+          return NextResponse.json({ error: explicitCheck.error }, { status: 400 });
+        }
       }
     }
 
@@ -134,9 +198,9 @@ export async function PATCH(
         userId: existing.user_id,
         projectId: existing.project_id,
         type: existing.type,
-        workingDays: existing.working_days_count,
+        workingDays,
         excludeRequestId: params.id,
-        annualAllocations: allocationUpdate,
+        annualAllocations: resolvedAllocations,
         balanceProjectId:
           balanceProjectUpdate ??
           (existing.balance_project_id as string | null) ??
@@ -154,6 +218,9 @@ export async function PATCH(
         decided_by: user.id,
         decided_at: new Date().toISOString(),
         decision_note: parsed.data.decisionNote ?? null,
+        ...(datesChanged
+          ? { start_date: startDate, end_date: endDate, working_days_count: workingDays }
+          : {}),
         ...(balanceProjectUpdate ? { balance_project_id: balanceProjectUpdate } : {}),
         ...(status === 'rejected' ? { approval_forward_sent_at: null } : {}),
       })
@@ -163,47 +230,92 @@ export async function PATCH(
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (
-      status === 'approved' &&
-      allocationUpdate?.length &&
-      existing.type === 'annual' &&
-      canReallocateFunds
-    ) {
-      const allocClient = createServiceClient();
+    if (resolvedAllocations?.length) {
+      /** Service client: project leads may review but cannot write allocation rows under RLS. */
       const { error: allocError } = await replaceAnnualAllocations(
-        allocClient,
+        createServiceClient(),
         params.id,
-        allocationUpdate
+        resolvedAllocations
       );
       if (allocError) {
+        /** Put the request back so the balance trigger reverses the day delta it just applied. */
+        await supabase
+          .from('leave_requests')
+          .update({
+            status: existing.status,
+            decided_by: existing.decided_by,
+            decided_at: existing.decided_at,
+            decision_note: existing.decision_note,
+            start_date: existing.start_date,
+            end_date: existing.end_date,
+            working_days_count: existing.working_days_count,
+          })
+          .eq('id', params.id);
         return NextResponse.json({ error: allocError.message }, { status: 500 });
       }
     }
 
     await supabase.from('leave_request_history').insert({
       request_id: params.id,
-      action: status,
+      action: datesChanged && !statusChanged ? 'edited' : status,
       performed_by: user.id,
-      snapshot: data,
+      snapshot: {
+        ...data,
+        ...(datesChanged
+          ? {
+              previous_start_date: existing.start_date,
+              previous_end_date: existing.end_date,
+              previous_working_days_count: existing.working_days_count,
+            }
+          : {}),
+      },
     });
 
     const service = createServiceClient();
-    await notifyRequestDecision(service, {
-      requestId: params.id,
-      projectId: existing.project_id,
-      projectName: (existing.projects as { name?: string } | null)?.name || 'Project',
-      employeeUserId: existing.user_id,
-      leaveType: existing.type,
-      startDate: existing.start_date,
-      endDate: existing.end_date,
-      status,
-      reason: parsed.data.decisionNote ?? undefined,
-    });
+    const projectName = (existing.projects as { name?: string } | null)?.name || 'Project';
+
+    if (datesChanged && !statusChanged) {
+      const { data: editor } = await supabase
+        .from('users')
+        .select('name')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      await notifyRequestDatesChanged(service, {
+        requestId: params.id,
+        projectId: existing.project_id,
+        projectName,
+        employeeUserId: existing.user_id,
+        editorUserId: user.id,
+        editorName: editor?.name || 'A reviewer',
+        leaveType: existing.type,
+        previousStartDate: existing.start_date,
+        previousEndDate: existing.end_date,
+        startDate,
+        endDate,
+        previousWorkingDays: Number(existing.working_days_count),
+        workingDays,
+      });
+    } else {
+      await notifyRequestDecision(service, {
+        requestId: params.id,
+        projectId: existing.project_id,
+        projectName,
+        employeeUserId: existing.user_id,
+        leaveType: existing.type,
+        startDate,
+        endDate,
+        status,
+        reason: parsed.data.decisionNote ?? undefined,
+      });
+    }
 
     if (status === 'approved') {
       const fwd = await sendLeaveApprovalForwardCopies(service, {
         approverUserId: user.id,
         leaveRequestId: params.id,
+        /** New dates invalidate any copy already forwarded for the old ones. */
+        resend: datesChanged,
       });
       if (fwd.error) {
         console.error('[leave-approval-forward]', fwd.error);

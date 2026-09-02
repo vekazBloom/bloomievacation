@@ -3,6 +3,7 @@ import { InviteReceivedEmail } from '../../../emails/invite-received';
 import { ProjectAddedEmail } from '../../../emails/project-added';
 import { ReligiousHolidayLoggedEmail } from '../../../emails/religious-holiday-logged';
 import { RequestApprovedEmail } from '../../../emails/request-approved';
+import { RequestDatesChangedEmail } from '../../../emails/request-dates-changed';
 import { RequestEditedEmail } from '../../../emails/request-edited';
 import { RequestRejectedEmail } from '../../../emails/request-rejected';
 import { RequestSubmittedEmail } from '../../../emails/request-submitted';
@@ -158,6 +159,40 @@ export async function sendRequestEditedEmail(params: {
       leaveType: formatLeaveTypeLabel(params.leaveType),
       startDate: formatEmailDate(params.startDate),
       endDate: formatEmailDate(params.endDate),
+      requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
+    }),
+  });
+}
+
+export async function sendRequestDatesChangedEmail(params: {
+  to: string;
+  employeeName: string;
+  editorName: string;
+  projectName: string;
+  leaveType: string;
+  previousStartDate: string;
+  previousEndDate: string;
+  startDate: string;
+  endDate: string;
+  previousWorkingDays: number;
+  workingDays: number;
+  requestId: string;
+  projectSlug: string;
+}) {
+  return sendEmail({
+    to: params.to,
+    subject: `Your leave dates in ${params.projectName} were changed`,
+    react: RequestDatesChangedEmail({
+      employeeName: params.employeeName,
+      editorName: params.editorName,
+      projectName: params.projectName,
+      leaveType: formatLeaveTypeLabel(params.leaveType),
+      previousStartDate: formatEmailDate(params.previousStartDate),
+      previousEndDate: formatEmailDate(params.previousEndDate),
+      startDate: formatEmailDate(params.startDate),
+      endDate: formatEmailDate(params.endDate),
+      previousWorkingDays: params.previousWorkingDays,
+      workingDays: params.workingDays,
       requestUrl: absoluteAppUrl(projectPath(params.projectSlug, 'requests', params.requestId)),
     }),
   });
